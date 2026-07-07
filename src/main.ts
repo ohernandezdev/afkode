@@ -551,10 +551,18 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
   const search = new SearchAddon();
-  term.loadAddon(search);
-  // Correct emoji/CJK cell widths — agent TUIs use them heavily.
-  term.loadAddon(new Unicode11Addon());
-  term.unicode.activeVersion = "11";
+  try {
+    term.loadAddon(search);
+  } catch {
+    /* search unavailable: Ctrl+F becomes a no-op */
+  }
+  try {
+    // Correct emoji/CJK cell widths — agent TUIs use them heavily.
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
+  } catch {
+    /* addon/version mismatch: default width tables still work */
+  }
   term.open(pane);
   try {
     term.loadAddon(new WebglAddon());
@@ -1557,6 +1565,17 @@ $("#inbox-close").addEventListener("click", () => inboxEl.classList.add("hidden"
 window.addEventListener("beforeunload", () => {
   for (const id of sessions.keys()) invoke("kill_pty", { id }).catch(() => {});
 });
+
+// Errors must never be invisible: surface unexpected failures in the banner
+// instead of dying as silent promise rejections.
+function surfaceError(msg: string) {
+  $("#away-text").textContent = `⚠ ${msg}`;
+  $("#away-banner").classList.remove("hidden");
+}
+window.addEventListener("unhandledrejection", (e) =>
+  surfaceError(String(e.reason).slice(0, 300)),
+);
+window.addEventListener("error", (e) => surfaceError(String(e.message).slice(0, 300)));
 
 // ── Boot ──────────────────────────────────────────────────
 
