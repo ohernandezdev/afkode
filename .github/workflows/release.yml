@@ -36,3 +36,15 @@ jobs:
           releaseBody: "See the commit history for changes. Installers below; the updater feeds from latest.json."
           releaseDraft: false
           prerelease: false
+
+  winget:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - name: Submit manifest update to winget-pkgs
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $url = "https://github.com/ohernandezdev/afkode/releases/download/${{ github.ref_name }}/AFKode_${version}_x64-setup.exe"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update OmarHernandez.AFKode --version $version --urls $url --submit --token "${{ secrets.WINGET_TOKEN }}"
