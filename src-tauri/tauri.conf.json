@@ -67,7 +67,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4MDM4MkQ0QTdDNkJBMUMKUldRY3VzYW4xSUlEaUo3UVFuZ0UrVkV6NzZWNTlZeFZ1aldnUzU5eXhldEhybUdMZ29sR0VuOFgK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEzRjJFMjlEQTUwOTg3N0EKUldSNmh3bWxuZUx5by9RMldpUmhTMG40VUpTT3AyYU1BaFNzNWdoTXl6VTB2VW1mZlllenBKaCsK",
       "endpoints": [
         "https://github.com/ohernandezdev/afkode/releases/latest/download/latest.json"
       ]
