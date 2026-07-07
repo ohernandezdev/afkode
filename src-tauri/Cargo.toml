@@ -1,0 +1,43 @@
+[package]
+name = "afkode"
+version = "0.6.0"
+description = "In-game overlay to supervise AI coding agents while you play"
+authors = ["Omar Hernandez"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "afkode_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+tiny_http = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+webview2-com = "0.38"
+windows-core = "0.61"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

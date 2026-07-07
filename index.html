@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AFKode</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="overlay" class="overlay">
+      <header class="titlebar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <span class="brand-dot"></span>
+          <span class="brand-name" data-tauri-drag-region>AFK<b>ODE</b></span>
+        </div>
+
+        <nav class="tabs" id="tabs"></nav>
+
+        <div class="tab-add-wrap">
+          <button class="btn btn-add" id="btn-new-tab" data-i18n-title="tooltipNew">+</button>
+          <div class="add-menu hidden" id="add-menu">
+            <button data-cmd="claude" data-name="Claude Code"><span class="mi dot-claude"></span>Claude Code</button>
+            <button data-cmd="opencode" data-name="OpenCode"><span class="mi dot-oc"></span>OpenCode</button>
+            <button data-cmd="codex" data-name="Codex"><span class="mi dot-cx"></span>Codex</button>
+            <button data-cmd="" data-name="PowerShell"><span class="mi dot-ps"></span>PowerShell</button>
+          </div>
+        </div>
+
+        <div class="spacer" data-tauri-drag-region></div>
+
+        <div class="controls">
+          <button class="btn" id="btn-help" data-i18n-title="tooltipHelp">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm.9 15.5h-1.9v-1.9h1.9v1.9Zm1.7-6.1-.9.9c-.6.6-.8 1.1-.8 2.2h-1.8v-.5c0-1.1.4-1.8 1-2.4l1.1-1.1a1.7 1.7 0 0 0 .5-1.2 1.7 1.7 0 1 0-3.4 0H8.5a3.5 3.5 0 1 1 7 0c0 .8-.3 1.5-.9 2.1Z"/></svg>
+          </button>
+          <button class="btn" id="btn-settings" data-i18n-title="tooltipSettings">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m19.4 13 .1-1-.1-1 2-1.6-1.9-3.3-2.4 1a7.7 7.7 0 0 0-1.7-1l-.4-2.6h-3.8l-.4 2.6a7.7 7.7 0 0 0-1.7 1l-2.4-1L4.8 9.4l2 1.6-.1 1 .1 1-2 1.6 1.9 3.3 2.4-1c.5.4 1.1.7 1.7 1l.4 2.6h3.8l.4-2.6c.6-.3 1.2-.6 1.7-1l2.4 1 1.9-3.3-2-1.6ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>
+          </button>
+          <button class="btn" id="btn-ghost" data-i18n-title="tooltipGhost">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M12 2a8 8 0 0 0-8 8v11l3-2 2.5 2 2.5-2 2.5 2 2.5-2 3 2V10a8 8 0 0 0-8-8Zm-3 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"/></svg>
+          </button>
+          <button class="btn" id="btn-hide" data-i18n-title="tooltipHide">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 11h14v2H5z"/></svg>
+          </button>
+          <button class="btn btn-close" id="btn-close" data-i18n-title="tooltipClose">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="terminals" id="terminals">
+        <div class="search-bar hidden" id="search-bar">
+          <svg viewBox="0 0 24 24" width="13" height="13" opacity="0.6"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"/></svg>
+          <input id="search-input" autocomplete="off" spellcheck="false" />
+          <button class="btn" id="search-close">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+          </button>
+        </div>
+        <div class="inbox hidden" id="inbox">
+          <div class="inbox-head">
+            <h3 id="inbox-title"></h3>
+            <button class="btn" id="inbox-close">
+              <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+            </button>
+          </div>
+          <div id="inbox-list"></div>
+        </div>
+        <div class="away-banner hidden" id="away-banner">
+          <span id="away-text"></span>
+          <button class="btn" id="away-close" title="×">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+          </button>
+        </div>
+        <div class="empty-state hidden" id="empty-state">
+          <div class="empty-logo"><span class="brand-dot big"></span></div>
+          <h2 id="empty-title"></h2>
+          <button class="pick-folder" id="btn-pick-folder">
+            <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg>
+            <span id="picked-folder-label"></span>
+          </button>
+          <div class="launchers">
+            <button data-cmd="claude" data-name="Claude Code"><span class="mi dot-claude"></span>Claude Code</button>
+            <button data-cmd="opencode" data-name="OpenCode"><span class="mi dot-oc"></span>OpenCode</button>
+            <button data-cmd="codex" data-name="Codex"><span class="mi dot-cx"></span>Codex</button>
+            <button data-cmd="" data-name="PowerShell"><span class="mi dot-ps"></span>PowerShell</button>
+          </div>
+        </div>
+      </main>
+
+      <footer class="statusbar">
+        <span class="status-left" id="status-session">—</span>
+        <span class="status-mid">
+          <svg viewBox="0 0 24 24" width="11" height="11" opacity="0.7"><path fill="currentColor" d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5S21.3 16.4 23 12c-1.7-4.4-6-7.5-11-7.5Zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>
+          <input type="range" id="opacity-slider" min="55" max="100" value="96" data-i18n-title="tooltipOpacity" />
+        </span>
+        <span class="status-right" id="status-hint"></span>
+      </footer>
+
+      <div class="ghost-badge hidden" id="ghost-badge"></div>
+
+      <div class="help-modal hidden" id="help-modal">
+        <div class="help-card">
+          <div class="help-head">
+            <h2 id="help-title"></h2>
+            <button class="btn" id="btn-help-close">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+            </button>
+          </div>
+          <ul class="help-list" id="help-list"></ul>
+        </div>
+      </div>
+
+      <div class="help-modal hidden" id="settings-modal">
+        <div class="help-card settings-card">
+          <div class="help-head">
+            <h2 data-i18n="settingsTitle"></h2>
+            <button class="btn" id="btn-settings-close">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+            </button>
+          </div>
+          <div class="set-row">
+            <label data-i18n="theme"></label>
+            <select id="sel-theme"></select>
+          </div>
+          <div class="set-row">
+            <label data-i18n="font"></label>
+            <select id="sel-font"></select>
+          </div>
+          <div class="set-row">
+            <label data-i18n="fontSize"></label>
+            <select id="sel-size"></select>
+          </div>
+          <div class="set-row">
+            <label data-i18n="language"></label>
+            <select id="sel-lang">
+              <option value="es">Español</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <label data-i18n="notifications"></label>
+            <input type="checkbox" id="chk-notify" class="switch" />
+          </div>
+          <div class="set-row">
+            <label data-i18n="sound"></label>
+            <input type="checkbox" id="chk-sound" class="switch" />
+          </div>
+          <div class="set-row">
+            <label data-i18n="hud"></label>
+            <input type="checkbox" id="chk-hud" class="switch" />
+          </div>
+          <div class="set-row">
+            <label data-i18n="autoLaunch"></label>
+            <input type="checkbox" id="chk-autolaunch" class="switch" />
+          </div>
+          <div class="set-row">
+            <label data-i18n="hooksLabel"></label>
+            <input type="checkbox" id="chk-hooks" class="switch" />
+          </div>
+          <p class="set-note" data-i18n="hooksNote"></p>
+          <div class="set-row">
+            <label data-i18n="matchModeLabel"></label>
+            <input type="checkbox" id="chk-matchmode" class="switch" />
+          </div>
+          <p class="set-note" data-i18n="matchModeNote"></p>
+          <div class="set-row">
+            <label data-i18n="ttsLabel"></label>
+            <input type="checkbox" id="chk-tts" class="switch" />
+          </div>
+          <p class="set-note" data-i18n="ttsNote"></p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
