@@ -221,6 +221,19 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Elige la carpeta del proyecto",
     emptyTitle: "¿Dónde quieres trabajar?",
     noFolder: "Elegir carpeta… (por defecto: inicio)",
+    wizTitle: "Configurar Claude Code",
+    wizIntro:
+      "AFKode necesita dos piezas para funcionar. Este asistente las instala por ti — cada paso abre una pestaña donde puedes ver el progreso.",
+    wizStep1: "Node.js",
+    wizStep1Note: "El motor que necesita Claude Code. Se instala con winget (instalador oficial de Windows).",
+    wizStep2: "Claude Code",
+    wizStep2Note: "El agente de IA de Anthropic. Se instala con npm.",
+    wizStep3: "Iniciar sesión",
+    wizStep3Note:
+      "Al abrir Claude Code por primera vez te pedirá iniciar sesión: se abrirá tu navegador, entra con tu cuenta y vuelve aquí.",
+    wizInstall: "Instalar",
+    wizLaunch: "Abrir Claude Code",
+    wizInstalling: "Instalando",
     starting: "Iniciando",
     notifications: "Notificaciones",
     sound: "Sonido",
@@ -293,6 +306,19 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Choose project folder",
     emptyTitle: "Where do you want to work?",
     noFolder: "Choose folder… (default: home)",
+    wizTitle: "Set up Claude Code",
+    wizIntro:
+      "AFKode needs two pieces to work. This wizard installs them for you — each step opens a tab where you can watch the progress.",
+    wizStep1: "Node.js",
+    wizStep1Note: "The engine Claude Code runs on. Installed via winget (official Windows installer).",
+    wizStep2: "Claude Code",
+    wizStep2Note: "Anthropic's AI coding agent. Installed via npm.",
+    wizStep3: "Sign in",
+    wizStep3Note:
+      "The first time Claude Code opens it will ask you to sign in: your browser will open, log in and come back here.",
+    wizInstall: "Install",
+    wizLaunch: "Open Claude Code",
+    wizInstalling: "Installing",
     starting: "Starting",
     notifications: "Notifications",
     sound: "Sound",
@@ -447,6 +473,40 @@ function updateEmptyState() {
 
 function updatePickedFolderLabel() {
   pickedFolderLabel.textContent = pickedFolder ?? t("noFolder");
+  renderRecents();
+}
+
+// ── Recent folders as one-click cards ─────────────────────
+
+function recentFolders(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem("recent-folders") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function addRecentFolder(path: string) {
+  const list = [path, ...recentFolders().filter((p) => p !== path)].slice(0, 4);
+  localStorage.setItem("recent-folders", JSON.stringify(list));
+}
+
+function renderRecents() {
+  const container = $("#recent-cards");
+  container.innerHTML = "";
+  for (const path of recentFolders()) {
+    const name = path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
+    const card = document.createElement("button");
+    card.className = `recent-card${path === pickedFolder ? " selected" : ""}`;
+    card.innerHTML = `<b></b><span></span>`;
+    (card.querySelector("b") as HTMLElement).textContent = name;
+    (card.querySelector("span") as HTMLElement).textContent = path;
+    card.addEventListener("click", () => {
+      pickedFolder = path;
+      updatePickedFolderLabel();
+    });
+    container.appendChild(card);
+  }
 }
 
 async function pickFolder(): Promise<string | null> {
@@ -508,7 +568,10 @@ function closeSession(id: string) {
 }
 
 async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
-  if (cwd) localStorage.setItem("last-folder", cwd);
+  if (cwd) {
+    localStorage.setItem("last-folder", cwd);
+    addRecentFolder(cwd);
+  }
   const folderName = cwd ? cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : null;
   const title = folderName ? `${baseTitle} · ${folderName}` : baseTitle;
 
@@ -609,6 +672,30 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     }
     return true;
   });
+  // Ctrl+V with an image in the clipboard: save it to a temp PNG and paste
+  // its path — Claude Code reads image paths (designers live on screenshots).
+  term.textarea?.addEventListener("paste", (ev) => {
+    const items = ev.clipboardData?.items;
+    if (!items) return;
+    const img = [...items].find((it) => it.type.startsWith("image/"));
+    if (!img) return; // plain text: xterm's own paste handles it
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    const file = img.getAsFile();
+    if (!file) return;
+    file.arrayBuffer().then((buf) => {
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+      }
+      invoke<string>("save_temp_image", { data: btoa(bin) })
+        .then((path) => invoke("write_pty", { id, data: `"${path}"` }))
+        .catch(() => {});
+    });
+  });
+
   pane.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
     const sel = term.getSelection();
@@ -1034,6 +1121,10 @@ listen<{ id: string }>("pty-exit", (e) => {
     notify(s, "notifExit");
   }
   refreshCliButtons();
+  if (!wizardModal.classList.contains("hidden")) {
+    wizBusy = 0;
+    wizardRefresh();
+  }
 });
 
 listen<boolean>("ghost-mode", (e) => {
@@ -1466,6 +1557,11 @@ async function refreshCliButtons() {
 }
 
 function launchCli(cmd: string, name: string, cwd: string | null) {
+  if (cmd === "claude" && cliAvailable[cmd] === false) {
+    // Missing Claude: the guided wizard handles Node + install + login.
+    openWizard();
+    return;
+  }
   if (cmd && cliAvailable[cmd] === false) {
     // Missing CLI: open a tab that installs it; buttons refresh on exit.
     newSession(CLI_INSTALL[cmd], `${t("installing")} ${name}…`, null);
@@ -1473,6 +1569,70 @@ function launchCli(cmd: string, name: string, cwd: string | null) {
   }
   newSession(cmd, name, cwd);
 }
+
+// ── First-run setup wizard ────────────────────────────────
+
+const NODE_INSTALL_CMD =
+  "winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements";
+
+const wizardModal = $("#wizard-modal");
+let wizBusy = 0; // step currently installing (0 = none)
+
+function openWizard() {
+  wizardModal.classList.remove("hidden");
+  wizardRefresh();
+}
+
+async function wizardRefresh() {
+  let nodeOk = false;
+  let claudeOk = false;
+  try {
+    const found = await invoke<boolean[]>("detect_clis", { names: ["node", "claude"] });
+    nodeOk = found[0];
+    claudeOk = found[1];
+    cliAvailable["claude"] = claudeOk;
+  } catch {
+    return;
+  }
+  const states: [boolean, boolean, boolean] = [nodeOk, claudeOk, claudeOk];
+  for (let i = 1; i <= 3; i++) {
+    const ico = $(`#wiz-ico-${i}`);
+    const btn = $<HTMLButtonElement>(`#wiz-btn-${i}`);
+    const done = i < 3 ? states[i - 1] : false;
+    const busy = wizBusy === i;
+    ico.textContent = done ? "✓" : busy ? "●" : "○";
+    ico.className = `wiz-ico${done ? " ok" : busy ? " busy" : ""}`;
+    const enabled =
+      !busy &&
+      ((i === 1 && !nodeOk) ||
+        (i === 2 && nodeOk && !claudeOk) ||
+        (i === 3 && claudeOk));
+    btn.disabled = !enabled;
+    if (i === 3 && claudeOk) ico.textContent = "→";
+  }
+}
+
+function wizardRunStep(step: number, cmd: string, title: string) {
+  wizBusy = step;
+  wizardRefresh();
+  newSession(cmd, `${t("wizInstalling")} ${title}…`, null);
+}
+
+$("#wiz-btn-1").addEventListener("click", () =>
+  wizardRunStep(1, NODE_INSTALL_CMD, "Node.js"),
+);
+$("#wiz-btn-2").addEventListener("click", () =>
+  wizardRunStep(2, CLI_INSTALL.claude, "Claude Code"),
+);
+$("#wiz-btn-3").addEventListener("click", () => {
+  wizardModal.classList.add("hidden");
+  localStorage.setItem("wizard-done", "1");
+  newSession("claude", "Claude Code", pickedFolder);
+});
+$("#wiz-close").addEventListener("click", () => {
+  wizardModal.classList.add("hidden");
+  localStorage.setItem("wizard-done", "1");
+});
 
 // ── Toolbar ───────────────────────────────────────────────
 
@@ -1583,6 +1743,11 @@ applyTheme();
 applyI18n();
 updateEmptyState();
 refreshCliButtons().then(() => {
+  // First run without Claude installed: open the guided setup.
+  if (cliAvailable["claude"] === false && !localStorage.getItem("wizard-done")) {
+    openWizard();
+    return;
+  }
   // Auto-launch: warm up Claude Code in the last folder while the user
   // is still tabbing into their game.
   if (settings.autoLaunch && sessions.size === 0 && cliAvailable["claude"] !== false) {

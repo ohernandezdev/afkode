@@ -160,6 +160,7 @@ fn spawn_pty(
     }
     builder.env("TERM", "xterm-256color");
     builder.env("COLORTERM", "truecolor");
+    builder.env("PATH", augmented_path());
 
     let child = pair
         .slave
@@ -267,6 +268,43 @@ fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// PATH plus tool locations that may have been installed after this process
+/// started (Node.js, npm global bin) — lets the setup wizard work without an
+/// app restart.
+fn augmented_path() -> String {
+    let mut path = std::env::var("PATH").unwrap_or_default();
+    let mut extras: Vec<String> = vec!["C:\\Program Files\\nodejs".into()];
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        extras.push(format!("{appdata}\\npm"));
+    }
+    for e in extras {
+        if std::path::Path::new(&e).exists() && !path.to_lowercase().contains(&e.to_lowercase()) {
+            path.push(';');
+            path.push_str(&e);
+        }
+    }
+    path
+}
+
+/// Save a base64 PNG from the clipboard to a temp file; returns its path so
+/// the frontend can hand it to the agent (Claude Code reads image paths).
+#[tauri::command]
+fn save_temp_image(data: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| e.to_string())?;
+    let dir = std::env::temp_dir().join("afkode-paste");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let path = dir.join(format!("paste-{stamp}.png"));
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[derive(Serialize)]
 struct DirEntry {
     name: String,
@@ -311,6 +349,7 @@ fn detect_clis(names: Vec<String>) -> Vec<bool> {
         .map(|n| {
             let mut c = std::process::Command::new("where.exe");
             c.arg(n);
+            c.env("PATH", augmented_path());
             #[cfg(target_os = "windows")]
             {
                 use std::os::windows::process::CommandExt;
@@ -579,7 +618,8 @@ pub fn run() {
             hide_palette,
             set_tray_labels,
             detect_clis,
-            list_dir
+            list_dir,
+            save_temp_image
         ])
         .setup(|app| {
             // Silent auto-update: check GitHub Releases in the background,
