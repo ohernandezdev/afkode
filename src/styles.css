@@ -721,6 +721,53 @@ body {
   transform: translateY(-1px);
 }
 
+.args-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 92%;
+}
+.chip {
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dim);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.chip:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+#claude-args {
+  flex: 1;
+  min-width: 180px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  outline: none;
+}
+#claude-args:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+#claude-args::placeholder {
+  color: #6f7684;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
 button.missing {
   opacity: 0.55;
 }

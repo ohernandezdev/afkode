@@ -136,16 +136,23 @@ fn spawn_pty(
         let mut b = CommandBuilder::new("powershell.exe");
         b.args(["-NoLogo"]);
         b
-    } else if trimmed == "claude" && hooks {
+    } else if (trimmed == "claude" || trimmed.starts_with("claude ")) && hooks {
         // Opt-in integration: inject hook settings so the agent reports
-        // real state (tool use, permission waits, turn end).
+        // real state (tool use, permission waits, turn end). User-supplied
+        // flags (--resume, --dangerously-skip-permissions, …) pass through.
         let mut b = CommandBuilder::new("cmd.exe");
-        if let Some(hooks_file) = HOOKS_FILE.get() {
-            let hooks_file = hooks_file.to_string_lossy().to_string();
-            b.args(["/c", "claude", "--settings", &hooks_file]);
-        } else {
-            b.args(["/c", "claude"]);
+        let mut args: Vec<String> = vec!["/c".into(), "claude".into()];
+        if let Some(rest) = trimmed.strip_prefix("claude") {
+            if let Ok(extra) = shell_words::split(rest.trim()) {
+                args.extend(extra);
+            }
         }
+        if let Some(hooks_file) = HOOKS_FILE.get() {
+            args.push("--settings".into());
+            args.push(hooks_file.to_string_lossy().to_string());
+        }
+        let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        b.args(refs);
         b
     } else {
         let mut b = CommandBuilder::new("cmd.exe");

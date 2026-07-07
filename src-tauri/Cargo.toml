@@ -1,6 +1,6 @@
 [package]
 name = "afkode"
-version = "0.7.0"
+version = "0.7.1"
 description = "In-game overlay to supervise AI coding agents while you play"
 authors = ["Omar Hernandez"]
 license = "MIT"
@@ -26,6 +26,7 @@ serde_json = "1"
 portable-pty = "0.9"
 tiny_http = "0.12"
 base64 = "0.22"
+shell-words = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

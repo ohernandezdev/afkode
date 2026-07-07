@@ -228,12 +228,13 @@ const I18N: Record<Lang, Record<string, string>> = {
     wizStep1Note: "El motor que necesita Claude Code. Se instala con winget (instalador oficial de Windows).",
     wizStep2: "Claude Code",
     wizStep2Note: "El agente de IA de Anthropic. Se instala con npm.",
-    wizStep3: "Iniciar sesión",
+    wizStep3: "Todo listo",
     wizStep3Note:
-      "Al abrir Claude Code por primera vez te pedirá iniciar sesión: se abrirá tu navegador, entra con tu cuenta y vuelve aquí.",
+      "Nota: si es tu primera vez, el propio Claude Code te pedirá iniciar sesión al abrirse (abre tu navegador y entra con tu cuenta) — eso lo gestiona Claude, no AFKode.",
     wizInstall: "Instalar",
     wizLaunch: "Abrir Claude Code",
     wizInstalling: "Instalando",
+    argsPlaceholder: "Flags extra para Claude Code (se aplican al lanzar)…",
     starting: "Iniciando",
     notifications: "Notificaciones",
     sound: "Sonido",
@@ -313,12 +314,13 @@ const I18N: Record<Lang, Record<string, string>> = {
     wizStep1Note: "The engine Claude Code runs on. Installed via winget (official Windows installer).",
     wizStep2: "Claude Code",
     wizStep2Note: "Anthropic's AI coding agent. Installed via npm.",
-    wizStep3: "Sign in",
+    wizStep3: "All set",
     wizStep3Note:
-      "The first time Claude Code opens it will ask you to sign in: your browser will open, log in and come back here.",
+      "Note: on first run Claude Code itself will ask you to sign in (your browser opens, log in with your account) — that part is handled by Claude, not AFKode.",
     wizInstall: "Install",
     wizLaunch: "Open Claude Code",
     wizInstalling: "Installing",
+    argsPlaceholder: "Extra flags for Claude Code (applied on launch)…",
     starting: "Starting",
     notifications: "Notifications",
     sound: "Sound",
@@ -901,7 +903,9 @@ function toolDetail(name: string, input: Record<string, unknown> | undefined): s
 }
 
 function findHookSession(p: { session_id?: string; cwd?: string }): Session | undefined {
-  const list = [...sessions.values()].filter((s) => s.cmd === "claude" && s.alive);
+  const list = [...sessions.values()].filter(
+    (s) => s.cmd.startsWith("claude") && s.alive,
+  );
   const norm = (x: string) => x.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
   let s = list.find((x) => x.hook.claudeId && x.hook.claudeId === p.session_id);
   if (!s && p.cwd) {
@@ -1447,6 +1451,7 @@ function applyI18n() {
     .map((i) => `<li>${t(`help${i}`)}</li>`)
     .join("");
   $("#empty-title").textContent = t("emptyTitle");
+  $<HTMLInputElement>("#claude-args").placeholder = t("argsPlaceholder");
   updatePickedFolderLabel();
   updateStatus();
   invoke("set_tray_labels", {
@@ -1556,8 +1561,42 @@ async function refreshCliButtons() {
   }
 }
 
+// ── Claude launch flags (--resume, --dangerously-skip-permissions, …) ──
+
+const argsInput = $<HTMLInputElement>("#claude-args");
+argsInput.value = localStorage.getItem("claude-args") ?? "";
+
+function syncArgChips() {
+  document.querySelectorAll<HTMLButtonElement>(".chip[data-flag]").forEach((c) => {
+    c.classList.toggle("on", argsInput.value.includes(c.dataset.flag!));
+  });
+}
+syncArgChips();
+
+argsInput.addEventListener("input", () => {
+  localStorage.setItem("claude-args", argsInput.value);
+  syncArgChips();
+});
+
+document.querySelectorAll<HTMLButtonElement>(".chip[data-flag]").forEach((c) =>
+  c.addEventListener("click", () => {
+    const flag = c.dataset.flag!;
+    argsInput.value = argsInput.value.includes(flag)
+      ? argsInput.value.replace(flag, "").replace(/\s+/g, " ").trim()
+      : `${argsInput.value} ${flag}`.trim();
+    localStorage.setItem("claude-args", argsInput.value);
+    syncArgChips();
+  }),
+);
+
+function claudeCmd(): string {
+  const extra = (localStorage.getItem("claude-args") ?? "").trim();
+  return extra ? `claude ${extra}` : "claude";
+}
+
 function launchCli(cmd: string, name: string, cwd: string | null) {
-  if (cmd === "claude" && cliAvailable[cmd] === false) {
+  if (cmd === "claude") cmd = claudeCmd();
+  if (cmd.startsWith("claude") && cliAvailable["claude"] === false) {
     // Missing Claude: the guided wizard handles Node + install + login.
     openWizard();
     return;

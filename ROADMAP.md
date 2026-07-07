@@ -29,6 +29,13 @@ Features born from putting ourselves in the actual user's seat (Valorant open, C
 - ✅ Memory saver (v0.5.1): host working-set trim + WebView2 low-memory target while hidden.
 - Backlog: edge-docked "peek" mode (Discord-chat style), gamer-style daily summary with streaks, Discord Rich Presence ("🤖 shipping code while ranking"), per-game HUD position profiles, per-title match detection (game APIs), session restore (reopen tabs/folders), inline images (`@xterm/addon-image`), and **diff preview before approving an Edit** (PreToolUse already carries the payload — render it).
 
+### 3.6 Non-technical onboarding (v0.7)
+Making AFKode usable as an AI-first terminal for designers/juniors, without diluting the gamer core:
+- ✅ **First-run setup wizard** — detects and installs Node.js (winget) and Claude Code (npm) with guided steps and live progress; PATH augmentation means no app restart between steps.
+- ✅ **Recent folders as one-click cards** on the empty state.
+- ✅ **Clipboard image paste** — Ctrl+V with a screenshot saves a temp PNG and hands its path to the agent.
+- Backlog: prompt starter chips, plain-language risk labels on approvals (read/run/delete classification), optional Chat View over stream-json (terminal as "advanced view"), light theme, Ctrl+wheel zoom.
+
 ### 4. Multi-surface: the same state on your phone
 The HUD pill is already a state feed. Push it to a mobile companion or just Discord/Telegram: approve a permission from the couch. At that point AFKode stops being "a gamer app" and becomes **the remote control for your agents**.
 
