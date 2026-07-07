@@ -2,6 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  readText as clipRead,
+  writeText as clipWrite,
+} from "@tauri-apps/plugin-clipboard-manager";
+import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
@@ -650,65 +654,58 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
 
   // Clipboard UX: copy-on-select, Ctrl+Shift+C/V, right-click copy/paste.
   // Inside TUIs (Claude Code) the app captures the mouse; Shift+drag selects.
+  // Clipboard goes through Rust (plugin): WebView2's navigator.clipboard
+  // permission model can silently block reads/writes in always-on-top windows.
   term.onSelectionChange(() => {
     const sel = term.getSelection();
-    if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+    if (sel) clipWrite(sel).catch(() => {});
   });
+  // Paste text, or — if the clipboard holds an image — save it to a temp
+  // PNG and hand its path to the agent.
+  const pasteFromClipboard = async () => {
+    try {
+      const txt = await clipRead();
+      if (txt) {
+        term.paste(txt);
+        return;
+      }
+    } catch {
+      /* clipboard is not text */
+    }
+    try {
+      const path = await invoke<string>("clipboard_image_to_temp");
+      if (path) invoke("write_pty", { id, data: `"${path}"` }).catch(() => {});
+    } catch {
+      /* nothing usable in the clipboard */
+    }
+  };
+
   term.attachCustomKeyEventHandler((ev) => {
-    if (ev.type === "keydown" && ev.ctrlKey && !ev.shiftKey && ev.code === "KeyF") {
+    if (ev.type !== "keydown") return true;
+    if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyF") {
       openSearch();
       return false;
     }
-    if (ev.type !== "keydown" || !ev.ctrlKey || !ev.shiftKey) return true;
-    if (ev.code === "KeyC") {
-      const sel = term.getSelection();
-      if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+    // Plain Ctrl+V would send ^V to the TUI instead of pasting — intercept.
+    if (ev.ctrlKey && ev.code === "KeyV") {
+      pasteFromClipboard();
       return false;
     }
-    if (ev.code === "KeyV") {
-      navigator.clipboard
-        .readText()
-        .then((txt) => txt && term.paste(txt))
-        .catch(() => {});
+    if (ev.ctrlKey && ev.shiftKey && ev.code === "KeyC") {
+      const sel = term.getSelection();
+      if (sel) clipWrite(sel).catch(() => {});
       return false;
     }
     return true;
   });
-  // Ctrl+V with an image in the clipboard: save it to a temp PNG and paste
-  // its path — Claude Code reads image paths (designers live on screenshots).
-  term.textarea?.addEventListener("paste", (ev) => {
-    const items = ev.clipboardData?.items;
-    if (!items) return;
-    const img = [...items].find((it) => it.type.startsWith("image/"));
-    if (!img) return; // plain text: xterm's own paste handles it
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-    const file = img.getAsFile();
-    if (!file) return;
-    file.arrayBuffer().then((buf) => {
-      const bytes = new Uint8Array(buf);
-      let bin = "";
-      const CHUNK = 0x8000;
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-      }
-      invoke<string>("save_temp_image", { data: btoa(bin) })
-        .then((path) => invoke("write_pty", { id, data: `"${path}"` }))
-        .catch(() => {});
-    });
-  });
-
   pane.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
     const sel = term.getSelection();
     if (sel) {
-      navigator.clipboard.writeText(sel).catch(() => {});
+      clipWrite(sel).catch(() => {});
       term.clearSelection();
     } else {
-      navigator.clipboard
-        .readText()
-        .then((txt) => txt && term.paste(txt))
-        .catch(() => {});
+      pasteFromClipboard();
     }
   });
 

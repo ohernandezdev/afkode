@@ -312,6 +312,36 @@ fn save_temp_image(data: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// If the OS clipboard holds an image, save it as a temp PNG and return the
+/// path (hidden PowerShell does the bitmap decoding — no extra crates).
+#[tauri::command]
+fn clipboard_image_to_temp() -> Result<String, String> {
+    let dir = std::env::temp_dir().join("afkode-paste");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let path = dir.join(format!("paste-{stamp}.png"));
+    let script = format!(
+        "$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{}') }}",
+        path.display()
+    );
+    let mut c = std::process::Command::new("powershell.exe");
+    c.args(["-NoProfile", "-Command", &script]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = c.output();
+    if path.exists() {
+        Ok(path.to_string_lossy().to_string())
+    } else {
+        Err("no image in clipboard".into())
+    }
+}
+
 #[derive(Serialize)]
 struct DirEntry {
     name: String,
@@ -601,6 +631,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -626,7 +657,8 @@ pub fn run() {
             set_tray_labels,
             detect_clis,
             list_dir,
-            save_temp_image
+            save_temp_image,
+            clipboard_image_to_temp
         ])
         .setup(|app| {
             // Silent auto-update: check GitHub Releases in the background,
