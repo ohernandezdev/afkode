@@ -52,10 +52,13 @@ npm run tauri build
 
 Installers land in `src-tauri/target/release/bundle/` (NSIS `.exe` and MSI).
 
+## Install
+
+Grab the latest installer from [Releases](https://github.com/ohernandezdev/afkode/releases). AFKode checks for updates on startup and installs them in the background (signed updater artifacts); restart to apply.
+
 ## Pending for public distribution
 
 - **Code signing** (OV/EV certificate): without it, Windows SmartScreen warns on install.
-- **Auto-updater** (`tauri-plugin-updater`): requires a release endpoint + signing keys.
 
 ## Limitations
 
