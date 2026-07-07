@@ -253,6 +253,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     hudWorking: "trabajando",
     hudWaiting: "esperándote",
     hudDone: "listo",
+    updateReady:
+      "AFKode {v} instalado — se aplicará al reiniciar la app (menú de la bandeja → Salir)",
     awaySummary:
       "Mientras no mirabas ({away} min): {turns} turnos completados · {tools} herramientas · {files} archivos · te esperó {waits} veces ({waitMin} min)",
   },
@@ -323,6 +325,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     hudWorking: "working",
     hudWaiting: "waiting for you",
     hudDone: "done",
+    updateReady:
+      "AFKode {v} installed — applies when you restart the app (tray menu → Quit)",
     awaySummary:
       "While you were away ({away} min): {turns} turns completed · {tools} tools · {files} files · it waited for you {waits} times ({waitMin} min)",
   },
@@ -1197,6 +1201,11 @@ listen<boolean>("game-mode", (e) => {
 listen("dnd-toggle", () => {
   dndOverride = !dndSilent();
   dndChanged();
+});
+
+listen<string>("update-installed", (e) => {
+  $("#away-text").textContent = t("updateReady").replace("{v}", e.payload);
+  $("#away-banner").classList.remove("hidden");
 });
 
 listen("overlay-shown", () => {

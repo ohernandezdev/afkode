@@ -65,9 +65,18 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4MDM4MkQ0QTdDNkJBMUMKUldRY3VzYW4xSUlEaUo3UVFuZ0UrVkV6NzZWNTlZeFZ1aldnUzU5eXhldEhybUdMZ29sR0VuOFgK",
+      "endpoints": [
+        "https://github.com/ohernandezdev/afkode/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

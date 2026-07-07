@@ -554,6 +554,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -581,6 +582,23 @@ pub fn run() {
             list_dir
         ])
         .setup(|app| {
+            // Silent auto-update: check GitHub Releases in the background,
+            // install if newer, and let the frontend tell the user to restart.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri_plugin_updater::UpdaterExt;
+                    let Ok(updater) = handle.updater() else { return };
+                    let Ok(Some(update)) = updater.check().await else {
+                        return;
+                    };
+                    let version = update.version.clone();
+                    if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
+                        let _ = handle.emit("update-installed", version);
+                    }
+                });
+            }
+
             // Agent hook feed: local listener + generated settings file.
             if let Some(port) = start_hook_server(app.handle().clone()) {
                 if let Ok(dir) = app.path().app_config_dir() {
