@@ -17,6 +17,7 @@
         </div>
 
         <nav class="tabs" id="tabs"></nav>
+        <div class="tab-color-menu hidden" id="tab-color-menu"></div>
 
         <div class="tab-add-wrap">
           <button class="btn btn-add" id="btn-new-tab" data-i18n-title="tooltipNew">+</button>
@@ -28,6 +29,11 @@
           </div>
         </div>
 
+        <button class="header-search" id="btn-global-search" data-i18n-title="tooltipGlobalSearch">
+          <svg viewBox="0 0 24 24" width="12" height="12" opacity="0.7"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"/></svg>
+          <span data-i18n="globalSearchPlaceholder"></span>
+          <kbd>Ctrl K</kbd>
+        </button>
         <div class="spacer" data-tauri-drag-region></div>
 
         <div class="controls">
@@ -42,6 +48,9 @@
           </button>
           <button class="btn" id="btn-hide" data-i18n-title="tooltipHide">
             <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 11h14v2H5z"/></svg>
+          </button>
+          <button class="btn hidden" id="btn-maximize" data-i18n-title="tooltipMaximize">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="none" stroke="currentColor" stroke-width="2" d="M5 5h14v14H5z"/></svg>
           </button>
           <button class="btn btn-close" id="btn-close" data-i18n-title="tooltipClose">
             <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
@@ -92,18 +101,40 @@
             <input id="claude-args" spellcheck="false" autocomplete="off" />
           </div>
         </div>
+
+        <div class="file-preview-panel" id="file-preview-modal">
+          <div class="file-preview-head">
+            <span class="file-preview-title" id="file-preview-title"></span>
+            <button class="btn" id="file-preview-close">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+            </button>
+          </div>
+          <div class="file-preview-body" id="file-preview-body"></div>
+        </div>
       </main>
 
       <footer class="statusbar">
         <span class="status-left" id="status-session">—</span>
-        <span class="status-mid">
-          <svg viewBox="0 0 24 24" width="11" height="11" opacity="0.7"><path fill="currentColor" d="M12 4.5C7 4.5 2.7 7.6 1 12c1.7 4.4 6 7.5 11 7.5S21.3 16.4 23 12c-1.7-4.4-6-7.5-11-7.5Zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>
-          <input type="range" id="opacity-slider" min="55" max="100" value="96" data-i18n-title="tooltipOpacity" />
+        <span class="status-mid" id="git-chip-wrap">
+          <span class="git-chip" id="git-branch-chip">
+            <svg viewBox="0 0 24 24" width="10" height="10"><path fill="currentColor" d="M7 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM7 7v6a4 4 0 0 0 4 4h2m2-9V7"/></svg>
+            <span id="git-branch-name"></span>
+          </span>
+          <span class="git-chip added hidden" id="git-added-chip"></span>
+          <span class="git-chip removed hidden" id="git-removed-chip"></span>
+          <span class="git-chip dirty hidden" id="git-dirty-chip" title="●"></span>
         </span>
         <span class="status-right" id="status-hint"></span>
       </footer>
 
       <div class="ghost-badge hidden" id="ghost-badge"></div>
+
+      <div class="help-modal hidden" id="global-search-modal">
+        <div class="help-card search-card">
+          <input id="global-search-input" class="global-search-input" autocomplete="off" spellcheck="false" />
+          <div class="global-search-results" id="global-search-results"></div>
+        </div>
+      </div>
 
       <div class="help-modal hidden" id="help-modal">
         <div class="help-card">
@@ -116,6 +147,8 @@
           <ul class="help-list" id="help-list"></ul>
         </div>
       </div>
+
+      <div class="link-toast hidden" id="link-toast"></div>
 
       <div class="help-modal hidden" id="wizard-modal">
         <div class="help-card settings-card">
@@ -154,7 +187,13 @@
           </div>
           <div class="set-row">
             <label data-i18n="theme"></label>
-            <select id="sel-theme"></select>
+            <div class="theme-picker" id="theme-picker">
+              <button class="theme-picker-btn" id="theme-picker-btn" type="button">
+                <span class="theme-swatch" id="theme-swatch-current"></span>
+                <span id="theme-picker-label"></span>
+              </button>
+              <div class="theme-menu hidden" id="theme-menu"></div>
+            </div>
           </div>
           <div class="set-row">
             <label data-i18n="font"></label>
@@ -170,6 +209,10 @@
               <option value="es">Español</option>
               <option value="en">English</option>
             </select>
+          </div>
+          <div class="set-row">
+            <label data-i18n="opacity"></label>
+            <input type="range" id="opacity-slider" min="55" max="100" value="96" data-i18n-title="tooltipOpacity" />
           </div>
           <div class="set-row">
             <label data-i18n="notifications"></label>
@@ -192,6 +235,11 @@
             <input type="checkbox" id="chk-hooks" class="switch" />
           </div>
           <p class="set-note" data-i18n="hooksNote"></p>
+          <div class="set-row">
+            <label data-i18n="overlayModeLabel"></label>
+            <input type="checkbox" id="chk-overlaymode" class="switch" />
+          </div>
+          <p class="set-note" data-i18n="overlayModeNote"></p>
           <div class="set-row">
             <label data-i18n="matchModeLabel"></label>
             <input type="checkbox" id="chk-matchmode" class="switch" />

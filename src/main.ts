@@ -11,7 +11,12 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import hljs from "highlight.js";
+import { Terminal, type ITheme, type IMarker } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -47,12 +52,12 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(217,119,87,0.14)",
     term: {
       ...TERM_COMMON,
-      foreground: "#c9d1d9",
+      foreground: "#aeb5bd",
       cursor: "#d97757",
       cursorAccent: "#171920",
       black: "#21252b", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
       blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#abb2bf",
-      brightBlack: "#5c6370", brightRed: "#ec8589", brightGreen: "#a9d18e",
+      brightBlack: "#363a44", brightRed: "#ec8589", brightGreen: "#a9d18e",
       brightYellow: "#edd09a", brightBlue: "#7cc0f5", brightMagenta: "#d492e8",
       brightCyan: "#72c8d4", brightWhite: "#e8ecf2",
     },
@@ -67,12 +72,12 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(217,119,87,0.16)",
     term: {
       ...TERM_COMMON,
-      foreground: "#e4dcd2",
+      foreground: "#c7c0b7",
       cursor: "#d97757",
       cursorAccent: "#24201c",
       black: "#2e2a25", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
       blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#c4bcb2",
-      brightBlack: "#6b6359", brightRed: "#ec8589", brightGreen: "#a9d18e",
+      brightBlack: "#443e37", brightRed: "#ec8589", brightGreen: "#a9d18e",
       brightYellow: "#edd09a", brightBlue: "#7cc0f5", brightMagenta: "#d492e8",
       brightCyan: "#72c8d4", brightWhite: "#f2ece4",
     },
@@ -87,12 +92,12 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(189,147,249,0.16)",
     term: {
       ...TERM_COMMON,
-      foreground: "#f8f8f2",
+      foreground: "#d9d9d6",
       cursor: "#bd93f9",
       cursorAccent: "#282a36",
       black: "#21222c", red: "#ff5555", green: "#50fa7b", yellow: "#f1fa8c",
       blue: "#bd93f9", magenta: "#ff79c6", cyan: "#8be9fd", white: "#f8f8f2",
-      brightBlack: "#6272a4", brightRed: "#ff6e6e", brightGreen: "#69ff94",
+      brightBlack: "#424a68", brightRed: "#ff6e6e", brightGreen: "#69ff94",
       brightYellow: "#ffffa5", brightBlue: "#d6acff", brightMagenta: "#ff92df",
       brightCyan: "#a4ffff", brightWhite: "#ffffff",
     },
@@ -107,12 +112,12 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(136,192,208,0.16)",
     term: {
       ...TERM_COMMON,
-      foreground: "#d8dee9",
+      foreground: "#bfc5d0",
       cursor: "#88c0d0",
       cursorAccent: "#2e3440",
       black: "#3b4252", red: "#bf616a", green: "#a3be8c", yellow: "#ebcb8b",
       blue: "#81a1c1", magenta: "#b48ead", cyan: "#88c0d0", white: "#e5e9f0",
-      brightBlack: "#4c566a", brightRed: "#d08770", brightGreen: "#b5cea0",
+      brightBlack: "#3c4353", brightRed: "#d08770", brightGreen: "#b5cea0",
       brightYellow: "#f0d8a8", brightBlue: "#94b4d4", brightMagenta: "#c5a3c0",
       brightCyan: "#8fbcbb", brightWhite: "#eceff4",
     },
@@ -127,12 +132,12 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(122,162,247,0.16)",
     term: {
       ...TERM_COMMON,
-      foreground: "#c0caf5",
+      foreground: "#a7b0d6",
       cursor: "#7aa2f7",
       cursorAccent: "#1a1b26",
       black: "#15161e", red: "#f7768e", green: "#9ece6a", yellow: "#e0af68",
       blue: "#7aa2f7", magenta: "#bb9af7", cyan: "#7dcfff", white: "#a9b1d6",
-      brightBlack: "#414868", brightRed: "#ff8fa3", brightGreen: "#b3dd85",
+      brightBlack: "#2c2f44", brightRed: "#ff8fa3", brightGreen: "#b3dd85",
       brightYellow: "#edc487", brightBlue: "#94b8ff", brightMagenta: "#ccb2ff",
       brightCyan: "#98dcff", brightWhite: "#c9d3f8",
     },
@@ -147,14 +152,74 @@ const THEMES: Record<string, ThemeDef> = {
     accentSoft: "rgba(254,128,25,0.15)",
     term: {
       ...TERM_COMMON,
-      foreground: "#ebdbb2",
+      foreground: "#cec09d",
       cursor: "#fe8019",
       cursorAccent: "#282828",
       black: "#282828", red: "#cc241d", green: "#98971a", yellow: "#d79921",
       blue: "#458588", magenta: "#b16286", cyan: "#689d6a", white: "#a89984",
-      brightBlack: "#928374", brightRed: "#fb4934", brightGreen: "#b8bb26",
+      brightBlack: "#58514a", brightRed: "#fb4934", brightGreen: "#b8bb26",
       brightYellow: "#fabd2f", brightBlue: "#83a598", brightMagenta: "#d3869b",
       brightCyan: "#8ec07c", brightWhite: "#ebdbb2",
+    },
+  },
+  solarized: {
+    label: "Solarized Dark",
+    panelRgb: "0, 43, 54",
+    barRgb: "7, 54, 66",
+    text: "#839496",
+    dim: "#586e75",
+    accent: "#268bd2",
+    accentSoft: "rgba(38,139,210,0.16)",
+    term: {
+      ...TERM_COMMON,
+      foreground: "#6f8488",
+      cursor: "#268bd2",
+      cursorAccent: "#002b36",
+      black: "#073642", red: "#dc322f", green: "#859900", yellow: "#b58900",
+      blue: "#268bd2", magenta: "#d33682", cyan: "#2aa198", white: "#eee8d5",
+      brightBlack: "#002b36", brightRed: "#cb4b16", brightGreen: "#586e75",
+      brightYellow: "#657b83", brightBlue: "#839496", brightMagenta: "#6c71c4",
+      brightCyan: "#93a1a1", brightWhite: "#fdf6e3",
+    },
+  },
+  github: {
+    label: "GitHub Dark",
+    panelRgb: "13, 17, 23",
+    barRgb: "22, 27, 34",
+    text: "#c9d1d9",
+    dim: "#8b949e",
+    accent: "#58a6ff",
+    accentSoft: "rgba(88,166,255,0.16)",
+    term: {
+      ...TERM_COMMON,
+      foreground: "#adb4bc",
+      cursor: "#58a6ff",
+      cursorAccent: "#0d1117",
+      black: "#484f58", red: "#ff7b72", green: "#3fb950", yellow: "#d29922",
+      blue: "#58a6ff", magenta: "#bc8cff", cyan: "#39c5cf", white: "#b1bac4",
+      brightBlack: "#393e47", brightRed: "#ffa198", brightGreen: "#56d364",
+      brightYellow: "#e3b341", brightBlue: "#79c0ff", brightMagenta: "#d2a8ff",
+      brightCyan: "#56d4dd", brightWhite: "#f0f6fc",
+    },
+  },
+  monokai: {
+    label: "Monokai",
+    panelRgb: "39, 40, 34",
+    barRgb: "46, 47, 41",
+    text: "#f8f8f2",
+    dim: "#75715e",
+    accent: "#f92672",
+    accentSoft: "rgba(249,38,114,0.16)",
+    term: {
+      ...TERM_COMMON,
+      foreground: "#d9d9d3",
+      cursor: "#f92672",
+      cursorAccent: "#272822",
+      black: "#272822", red: "#f92672", green: "#a6e22e", yellow: "#f4bf75",
+      blue: "#66d9ef", magenta: "#ae81ff", cyan: "#a1efe4", white: "#f8f8f2",
+      brightBlack: "#4a493d", brightRed: "#f92672", brightGreen: "#a6e22e",
+      brightYellow: "#f4bf75", brightBlue: "#66d9ef", brightMagenta: "#ae81ff",
+      brightCyan: "#a1efe4", brightWhite: "#f9f8f5",
     },
   },
 };
@@ -196,6 +261,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     tooltipSettings: "Ajustes",
     tooltipGhost: "Modo fantasma (Alt+G): los clics pasan al juego",
     tooltipHide: "Ocultar overlay (Alt+X)",
+    tooltipMaximize: "Maximizar / restaurar",
     tooltipClose: "Ocultar a la bandeja (salir: menú del icono de la bandeja)",
     tooltipOpacity: "Opacidad del fondo",
     statusHint:
@@ -216,6 +282,7 @@ const I18N: Record<Lang, Record<string, string>> = {
       "<b>A tu medida.</b> Temas, fuente e idioma en ⚙; arrastra la barra superior para moverlo y ajusta la opacidad con el control de la barra inferior.",
     settingsTitle: "Ajustes",
     theme: "Tema",
+    opacity: "Opacidad",
     font: "Fuente",
     fontSize: "Tamaño",
     language: "Idioma",
@@ -257,10 +324,21 @@ const I18N: Record<Lang, Record<string, string>> = {
     trayPalette: "Paleta de prompts",
     trayQuit: "Salir de AFKode",
     hudOpen: "Abrir overlay (Alt+X)",
+    overlayModeLabel: "Modo overlay",
+    overlayModeNote:
+      "Encendido: la ventana flota siempre encima de todo y no aparece en la barra de tareas — pensado para jugar. Apagado: se comporta como una ventana normal (barra de tareas, Alt+Tab) — mejor si no estás jugando y quieres evitar que te tape o te confunda con otras apps en pantalla completa.",
     matchModeLabel: "No molestar en partida",
     matchModeNote:
       "Cuando un juego en pantalla completa tiene el foco, AFKode guarda silencio: sin toasts ni beeps. Lo pendiente se acumula en el inbox y al levantar el silencio recibes un único aviso. Como los lobbies también son fullscreen, Alt+N alterna el silencio manualmente (🔕 en el mini-HUD); al cerrar el juego vuelve al modo automático.",
     searchPlaceholder: "Buscar en el terminal…  (Enter siguiente · Shift+Enter anterior)",
+    tooltipGlobalSearch: "Buscar sesiones (Ctrl+K)",
+    globalSearchPlaceholder: "Buscar sesiones…",
+    globalSearchEmpty: "Sin resultados",
+    linkOpening: "Abriendo enlace en tu navegador…",
+    filePreviewError: "No se pudo abrir el archivo",
+    filePreviewNotFoundBare:
+      "No encontré este archivo en la carpeta de la sesión. Claude probablemente lo mencionó sin indicar su ruta completa.",
+    filePreviewTriedIn: "se buscó en",
     inboxTitle: "Pendientes de tus agentes",
     inboxApprove: "Aprobar",
     inboxOpen: "Ir",
@@ -282,6 +360,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     tooltipSettings: "Settings",
     tooltipGhost: "Ghost mode (Alt+G): clicks pass through to the game",
     tooltipHide: "Hide overlay (Alt+X)",
+    tooltipMaximize: "Maximize / restore",
     tooltipClose: "Hide to tray (quit via the tray icon menu)",
     tooltipOpacity: "Background opacity",
     statusHint:
@@ -302,6 +381,7 @@ const I18N: Record<Lang, Record<string, string>> = {
       "<b>Make it yours.</b> Themes, font and language in ⚙; drag the top bar to move it and adjust opacity with the bottom-bar slider.",
     settingsTitle: "Settings",
     theme: "Theme",
+    opacity: "Opacity",
     font: "Font",
     fontSize: "Size",
     language: "Language",
@@ -343,10 +423,21 @@ const I18N: Record<Lang, Record<string, string>> = {
     trayPalette: "Prompt palette",
     trayQuit: "Quit AFKode",
     hudOpen: "Open overlay (Alt+X)",
+    overlayModeLabel: "Overlay mode",
+    overlayModeNote:
+      "On: the window always floats above everything and stays off the taskbar — built for playing. Off: it behaves like a normal window (taskbar, Alt+Tab) — better when you're not gaming and don't want it burying or getting buried by other fullscreen apps.",
     matchModeLabel: "Do not disturb in match",
     matchModeNote:
       "While a fullscreen game holds focus, AFKode stays silent: no toasts, no beeps. Pending items pile up in the inbox and you get a single ping when silence lifts. Since lobbies are fullscreen too, Alt+N toggles silence manually (🔕 on the mini-HUD); closing the game returns to auto.",
     searchPlaceholder: "Search the terminal…  (Enter next · Shift+Enter previous)",
+    tooltipGlobalSearch: "Search sessions (Ctrl+K)",
+    globalSearchPlaceholder: "Search sessions…",
+    globalSearchEmpty: "No results",
+    linkOpening: "Opening link in your browser…",
+    filePreviewError: "Couldn't open the file",
+    filePreviewNotFoundBare:
+      "Couldn't find this file in the session's folder. Claude likely mentioned it without its full path.",
+    filePreviewTriedIn: "looked in",
     inboxTitle: "Your agents need you",
     inboxApprove: "Approve",
     inboxOpen: "Go",
@@ -378,6 +469,7 @@ interface Settings {
   hooks: boolean;
   matchMode: boolean;
   tts: boolean;
+  overlayMode: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -392,6 +484,7 @@ const DEFAULTS: Settings = {
   hooks: true,
   matchMode: true,
   tts: false,
+  overlayMode: true,
 };
 
 function loadSettings(): Settings {
@@ -435,6 +528,7 @@ interface SessionStats {
 interface Session {
   id: string;
   title: string;
+  color?: string;
   cmd: string;
   cwd: string | null;
   term: Terminal;
@@ -545,10 +639,11 @@ function setActive(id: string) {
     active.exitSeen = true;
   }
   updateStatus();
+  updateGitStatus();
   const s = sessions.get(id);
   if (s) {
     requestAnimationFrame(() => {
-      s.fit.fit();
+      safeFit(s.term, s.fit, s.pane);
       s.term.focus();
     });
   }
@@ -573,6 +668,68 @@ function closeSession(id: string) {
   updateEmptyState();
 }
 
+// The DOM renderer lays out each row as real text, and fractional
+// line-heights round per-row instead of per-terminal; over many rows that
+// drift can push the last line past the pane's bottom edge. FitAddon can't
+// see that at measurement time, so shrink by a row until it actually fits.
+function safeFit(term: Terminal, fit: FitAddon, pane: HTMLElement) {
+  fit.fit();
+  requestAnimationFrame(() => {
+    const screen = pane.querySelector<HTMLElement>(".xterm-screen");
+    if (!screen) return;
+    if (screen.getBoundingClientRect().bottom > pane.getBoundingClientRect().bottom + 0.5 && term.rows > 1) {
+      term.resize(term.cols, term.rows - 1);
+    }
+  });
+}
+
+// Warp-style blocks: the injected PowerShell prompt (see PS_PROMPT_PRELUDE
+// in the Rust side) wraps itself in OSC 133 markers. "A" fires right before
+// the prompt text is drawn, "D;<exit>" right before the *next* prompt is
+// drawn — so a block's full extent (prompt+command through all its output)
+// is only known once the following "D" arrives. Reading the marker row's
+// rendered text (not raw keystrokes) means arrow-key edits, paste, and
+// history recall are all reflected correctly for free.
+function wireCommandBlocks(term: Terminal, sessionId: string) {
+  let prevMarker: IMarker | null = null;
+
+  const finalizeBlock = (marker: IMarker) => {
+    const line = term.buffer.active.getLine(marker.line);
+    const raw = line?.translateToString(true) ?? "";
+    const cmdText = raw.replace(/^PS .*?>\s?/, "").trim();
+    if (!cmdText) return; // empty prompt (just pressed Enter) — nothing to mark
+    const deco = term.registerDecoration({ marker, width: term.cols });
+    if (!deco) return; // undefined while the alt buffer is active
+    deco.onRender((el) => {
+      el.classList.add("block-marker");
+      if (el.querySelector(".block-actions")) return; // onRender fires again on resize/scroll
+      const bar = document.createElement("div");
+      bar.className = "block-actions";
+      bar.innerHTML =
+        '<button class="block-act" data-act="copy" title="Copy command">⧉</button>' +
+        '<button class="block-act" data-act="rerun" title="Rerun">↻</button>';
+      bar.addEventListener("mousedown", (ev) => ev.stopPropagation());
+      bar.addEventListener("click", (ev) => {
+        const act = (ev.target as HTMLElement).closest<HTMLElement>(".block-act")?.dataset.act;
+        if (act === "copy") clipWrite(cmdText).catch(() => {});
+        else if (act === "rerun") invoke("write_pty", { id: sessionId, data: `${cmdText}\r` }).catch(() => {});
+      });
+      el.appendChild(bar);
+    });
+  };
+
+  term.parser.registerOscHandler(133, (data) => {
+    const kind = data.split(";")[0];
+    if (kind === "D" && prevMarker) {
+      finalizeBlock(prevMarker);
+      prevMarker = null;
+    } else if (kind === "A") {
+      prevMarker = term.registerMarker(0);
+    }
+    return true;
+  });
+}
+
 async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   if (cwd) {
     localStorage.setItem("last-folder", cwd);
@@ -590,10 +747,17 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   const tab = document.createElement("button");
   tab.className = "tab";
   tab.innerHTML = `<span class="tab-dot"></span><span class="tab-title"></span><span class="tab-x" title="×">×</span>`;
-  (tab.querySelector(".tab-title") as HTMLElement).textContent = title;
+  const tabTitleEl = tab.querySelector(".tab-title") as HTMLElement;
+  tabTitleEl.textContent = title;
   tab.addEventListener("click", (e) => {
     if ((e.target as HTMLElement).classList.contains("tab-x")) closeSession(id);
     else setActive(id);
+  });
+  tab.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const s = sessions.get(id);
+    if (s) openTabColorMenu(s, e.clientX, e.clientY);
   });
   tabsEl.appendChild(tab);
 
@@ -605,8 +769,8 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     lineHeight: 1.25,
     letterSpacing: 0,
     fontWeight: "400",
-    // Synthesized semibold smears at small sizes in the WebGL atlas; render
-    // bold at normal weight and let bright colors carry the emphasis.
+    // Synthesized semibold smears at small sizes; render bold at normal
+    // weight and let bright colors carry the emphasis.
     fontWeightBold: "400",
     drawBoldTextInBrightColors: true,
     minimumContrastRatio: 1,
@@ -618,7 +782,24 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.loadAddon(new WebLinksAddon());
+  term.loadAddon(
+    new WebLinksAddon((_event, uri) => {
+      openUrl(uri).catch(() => {});
+      showLinkToast(`${t("linkOpening")} ${uri}`);
+      // The in-window toast is invisible if some other fullscreen app (not
+      // a game — those already get the DND treatment) is covering the
+      // overlay, which is exactly when someone can't tell whether the link
+      // actually opened. A native OS toast punches through that.
+      if (settings.notify && !(overlayVisible && document.hasFocus()) && notifPermission) {
+        try {
+          sendNotification({ title: "AFKode", body: `${t("linkOpening")} ${uri}` });
+        } catch {
+          /* notifications unavailable */
+        }
+      }
+    }),
+  );
+  term.registerLinkProvider(fileLinkProvider(term, cwd));
   const search = new SearchAddon();
   try {
     term.loadAddon(search);
@@ -638,7 +819,15 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   } catch {
     /* WebGL unavailable: xterm falls back to DOM renderer */
   }
-  fit.fit();
+  // Fit before the font face settles can undercount columns and wrap
+  // output early.
+  await document.fonts.ready;
+  safeFit(term, fit, pane);
+
+  // Warp-style blocks: only for plain shell sessions. Agent TUIs (Claude
+  // Code etc.) render in the alt-screen buffer, where registerDecoration
+  // is a documented no-op, so this never applies to them even by mistake.
+  if (!cmd) wireCommandBlocks(term, id);
 
   // Loading animation until the CLI paints its first output (Claude Code's
   // initial spin-up leaves the pane black for several seconds).
@@ -683,15 +872,20 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== "keydown") return true;
     if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyF") {
+      ev.preventDefault();
       openSearch();
       return false;
     }
     // Plain Ctrl+V would send ^V to the TUI instead of pasting — intercept.
+    // Without preventDefault, the browser's own paste also fires on xterm's
+    // hidden textarea, so the clipboard text lands twice.
     if (ev.ctrlKey && ev.code === "KeyV") {
+      ev.preventDefault();
       pasteFromClipboard();
       return false;
     }
     if (ev.ctrlKey && ev.shiftKey && ev.code === "KeyC") {
+      ev.preventDefault();
       const sel = term.getSelection();
       if (sel) clipWrite(sel).catch(() => {});
       return false;
@@ -731,6 +925,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     exitSeen: true,
   };
   sessions.set(id, session);
+  wireTabRename(tabTitleEl, session);
   updateEmptyState();
   setActive(id);
 
@@ -773,6 +968,49 @@ let notifPermission = false;
     notifPermission = false;
   }
 })();
+
+// ── Footer: git branch + diff stat ─────────────────────────
+
+interface GitStatus {
+  branch: string;
+  added: number;
+  removed: number;
+  dirty: boolean;
+}
+
+const gitChipWrap = $("#git-chip-wrap");
+const gitBranchName = $("#git-branch-name");
+const gitAddedChip = $("#git-added-chip");
+const gitRemovedChip = $("#git-removed-chip");
+const gitDirtyChip = $("#git-dirty-chip");
+
+async function updateGitStatus() {
+  const s = activeId ? sessions.get(activeId) : null;
+  if (!s?.cwd) {
+    gitChipWrap.classList.add("hidden");
+    return;
+  }
+  try {
+    const g = await invoke<GitStatus | null>("git_status", { cwd: s.cwd });
+    if (!g) {
+      gitChipWrap.classList.add("hidden");
+      return;
+    }
+    gitChipWrap.classList.remove("hidden");
+    gitBranchName.textContent = g.branch;
+    gitAddedChip.classList.toggle("hidden", g.added === 0);
+    gitAddedChip.textContent = `+${g.added}`;
+    gitRemovedChip.classList.toggle("hidden", g.removed === 0);
+    gitRemovedChip.textContent = `-${g.removed}`;
+    gitDirtyChip.classList.toggle("hidden", !g.dirty);
+  } catch {
+    gitChipWrap.classList.add("hidden");
+  }
+}
+updateGitStatus();
+setInterval(() => {
+  if (overlayVisible) updateGitStatus();
+}, 5000);
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b(\[[0-9;?]*[a-zA-Z]|\][^\x07]*(\x07|\x1b\\)|[()][0-9A-B])/g;
@@ -932,8 +1170,17 @@ listen<string>("agent-hook", (e) => {
   s.hook.seen = true;
   switch (p.hook_event_name) {
     case "Notification":
-      startWait(s, p.message ?? "");
-      notify(s, "notifWaiting");
+      // Claude Code fires this both for a real permission prompt and for a
+      // generic "still idle" nudge after ~60s of silence with nothing
+      // actually blocking. Only the former is truly waiting on you.
+      if (/permission/i.test(p.message ?? "")) {
+        startWait(s, p.message ?? "");
+        notify(s, "notifWaiting");
+      } else {
+        endWait(s);
+        s.hook.idle = true;
+        notify(s, "notifDone");
+      }
       break;
     case "PreToolUse":
       s.hook.idle = false;
@@ -1325,7 +1572,7 @@ listen("overlay-shown", () => {
   awayStart = 0;
   const s = activeId && sessions.get(activeId);
   if (s) {
-    s.fit.fit();
+    safeFit(s.term, s.fit, s.pane);
     s.term.focus();
   }
 });
@@ -1405,7 +1652,7 @@ new ResizeObserver(() => {
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
     const s = activeId && sessions.get(activeId);
-    if (s) s.fit.fit();
+    if (s) safeFit(s.term, s.fit, s.pane);
   });
 }).observe(terminalsEl);
 
@@ -1429,7 +1676,7 @@ function applyFont() {
   for (const s of sessions.values()) {
     s.term.options.fontFamily = `"${settings.font}", Consolas, monospace`;
     s.term.options.fontSize = settings.size;
-    s.fit.fit();
+    safeFit(s.term, s.fit, s.pane);
   }
 }
 
@@ -1449,6 +1696,7 @@ function applyI18n() {
     .join("");
   $("#empty-title").textContent = t("emptyTitle");
   $<HTMLInputElement>("#claude-args").placeholder = t("argsPlaceholder");
+  $<HTMLInputElement>("#global-search-input").placeholder = t("globalSearchPlaceholder");
   updatePickedFolderLabel();
   updateStatus();
   invoke("set_tray_labels", {
@@ -1461,31 +1709,73 @@ function applyI18n() {
 
 // ── Settings UI ───────────────────────────────────────────
 
-const selTheme = $<HTMLSelectElement>("#sel-theme");
 const selFont = $<HTMLSelectElement>("#sel-font");
 const selSize = $<HTMLSelectElement>("#sel-size");
 const selLang = $<HTMLSelectElement>("#sel-lang");
 
-selTheme.innerHTML = Object.entries(THEMES)
-  .map(([k, v]) => `<option value="${k}">${v.label}</option>`)
-  .join("");
+// Small conic-gradient swatch (panel bg · accent · a green · a blue) so each
+// theme is recognizable at a glance instead of just a name in a plain list.
+function themeSwatchStyle(k: string): string {
+  const v = THEMES[k];
+  const c = [`rgb(${v.panelRgb})`, v.accent, v.term.green ?? v.accent, v.term.blue ?? v.text];
+  return `background: conic-gradient(${c[0]} 0% 25%, ${c[1]} 25% 50%, ${c[2]} 50% 75%, ${c[3]} 75% 100%);`;
+}
+
+const themePicker = $<HTMLElement>("#theme-picker");
+const themePickerBtn = $<HTMLButtonElement>("#theme-picker-btn");
+const themeSwatchCurrent = $<HTMLElement>("#theme-swatch-current");
+const themePickerLabel = $<HTMLElement>("#theme-picker-label");
+const themeMenu = $<HTMLElement>("#theme-menu");
+
+function renderThemeMenu() {
+  themeMenu.innerHTML = Object.entries(THEMES)
+    .map(
+      ([k, v]) =>
+        `<button class="theme-menu-item${k === settings.theme ? " active" : ""}" data-key="${k}">
+          <span class="theme-swatch" style="${themeSwatchStyle(k)}"></span>
+          <span>${v.label}</span>
+        </button>`,
+    )
+    .join("");
+}
+
+function setThemePickerLabel() {
+  themeSwatchCurrent.setAttribute("style", themeSwatchStyle(settings.theme));
+  themePickerLabel.textContent = THEMES[settings.theme].label;
+}
+
+renderThemeMenu();
+setThemePickerLabel();
+
+themePickerBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  themeMenu.classList.toggle("hidden");
+});
+themeMenu.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".theme-menu-item");
+  if (!btn?.dataset.key) return;
+  settings.theme = btn.dataset.key;
+  saveSettings();
+  applyTheme();
+  setThemePickerLabel();
+  renderThemeMenu();
+  themeMenu.classList.add("hidden");
+});
+document.addEventListener("click", (e) => {
+  if (!themePicker.contains(e.target as Node)) themeMenu.classList.add("hidden");
+});
+
 selFont.innerHTML = availableFonts
   .map((f) => `<option value="${f}">${f}</option>`)
   .join("");
 selSize.innerHTML = FONT_SIZES.map((n) => `<option value="${n}">${n}px</option>`).join("");
 
-selTheme.value = settings.theme;
 selFont.value = availableFonts.includes(settings.font)
   ? settings.font
   : availableFonts[0];
 selSize.value = String(settings.size);
 selLang.value = settings.lang;
 
-selTheme.addEventListener("change", () => {
-  settings.theme = selTheme.value;
-  saveSettings();
-  applyTheme();
-});
 selFont.addEventListener("change", () => {
   settings.font = selFont.value;
   saveSettings();
@@ -1519,6 +1809,17 @@ wireSwitch("#chk-hud", "hud");
 wireSwitch("#chk-autolaunch", "autoLaunch");
 wireSwitch("#chk-hooks", "hooks");
 wireSwitch("#chk-matchmode", "matchMode");
+
+const chkOverlayMode = $<HTMLInputElement>("#chk-overlaymode");
+chkOverlayMode.checked = settings.overlayMode;
+invoke("set_window_mode", { overlay: settings.overlayMode }).catch(() => {});
+chkOverlayMode.addEventListener("change", () => {
+  settings.overlayMode = chkOverlayMode.checked;
+  saveSettings();
+  invoke("set_window_mode", { overlay: settings.overlayMode }).catch(() => {});
+  applyWindowModeUI(settings.overlayMode);
+});
+
 const chkTts = $<HTMLInputElement>("#chk-tts");
 chkTts.checked = settings.tts;
 chkTts.addEventListener("change", () => {
@@ -1708,12 +2009,84 @@ emptyState.querySelectorAll(".launchers button").forEach((b) =>
 
 document.addEventListener("click", () => addMenu.classList.add("hidden"));
 
+// ── Tab rename + custom color ──────────────────────────────
+
+function wireTabRename(titleEl: HTMLElement, session: Session) {
+  titleEl.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    const input = document.createElement("input");
+    input.className = "tab-title-edit";
+    input.value = session.title;
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+    const commit = (save: boolean) => {
+      const next = document.createElement("span");
+      next.className = "tab-title";
+      if (save) session.title = input.value.trim() || session.title;
+      next.textContent = session.title;
+      input.replaceWith(next);
+      wireTabRename(next, session);
+    };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") commit(true);
+      else if (ev.key === "Escape") commit(false);
+    });
+    input.addEventListener("blur", () => commit(true));
+  });
+}
+
+const TAB_COLORS = [
+  "#d97757", "#e06c75", "#e5c07b", "#98c379",
+  "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+];
+const tabColorMenu = $("#tab-color-menu");
+tabColorMenu.innerHTML =
+  TAB_COLORS.map((c) => `<button class="tab-swatch" data-color="${c}" style="background:${c}"></button>`).join("") +
+  `<button class="tab-swatch reset" data-color="" title="×">×</button>`;
+let colorMenuTarget: Session | null = null;
+
+function applyTabColor(session: Session) {
+  session.tab.style.borderLeftColor = session.color ?? "transparent";
+}
+
+function openTabColorMenu(session: Session, x: number, y: number) {
+  colorMenuTarget = session;
+  tabColorMenu.style.left = `${x}px`;
+  tabColorMenu.style.top = `${y}px`;
+  tabColorMenu.classList.remove("hidden");
+}
+
+tabColorMenu.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".tab-swatch");
+  if (!btn || !colorMenuTarget) return;
+  colorMenuTarget.color = btn.dataset.color || undefined;
+  applyTabColor(colorMenuTarget);
+  tabColorMenu.classList.add("hidden");
+});
+document.addEventListener("click", (e) => {
+  if (!tabColorMenu.contains(e.target as Node)) tabColorMenu.classList.add("hidden");
+});
+
 $("#btn-ghost").addEventListener("click", () =>
   invoke("set_ghost_mode", { enabled: !overlayEl.classList.contains("ghost") }),
 );
-$("#btn-hide").addEventListener("click", () => invoke("hide_overlay"));
-// × hides to the tray (Discord-style); quitting is in the tray menu.
+// In overlay mode there's no taskbar icon, so × / minimize just hide the
+// window (reachable again via the tray or Alt+X). In window mode there IS
+// a taskbar icon, so minimize should actually minimize like any other app.
+$("#btn-hide").addEventListener("click", () => {
+  if (settings.overlayMode) invoke("hide_overlay");
+  else getCurrentWindow().minimize().catch(() => {});
+});
+// × always hides to the tray (Discord-style), in both modes — it's the one
+// guaranteed way back via Alt+X/tray if minimize ever gets the window into
+// a stuck state. Quitting is in the tray menu either way.
 $("#btn-close").addEventListener("click", () => invoke("hide_overlay"));
+
+const btnMaximize = $("#btn-maximize");
+btnMaximize.addEventListener("click", () => {
+  getCurrentWindow().toggleMaximize().catch(() => {});
+});
 
 // ── Background opacity ────────────────────────────────────
 
@@ -1734,6 +2107,21 @@ opacitySlider.addEventListener("input", () => {
   localStorage.setItem("panel-alpha", opacitySlider.value);
 });
 
+// Transparency and a hidden maximize button only make sense floating over
+// a game; a normal window should just be a normal, opaque window.
+function applyWindowModeUI(overlay: boolean) {
+  btnMaximize.classList.toggle("hidden", overlay);
+  opacitySlider.disabled = !overlay;
+  if (overlay) {
+    const alpha = localStorage.getItem("panel-alpha") ?? "96";
+    opacitySlider.value = alpha;
+    document.documentElement.style.setProperty("--panel-alpha", String(Number(alpha) / 100));
+  } else {
+    document.documentElement.style.setProperty("--panel-alpha", "1");
+  }
+}
+applyWindowModeUI(settings.overlayMode);
+
 // ── Modals ────────────────────────────────────────────────
 
 function wireModal(modalSel: string, openSel: string, closeSel: string) {
@@ -1751,6 +2139,238 @@ function wireModal(modalSel: string, openSel: string, closeSel: string) {
 
 const helpModal = wireModal("#help-modal", "#btn-help", "#btn-help-close");
 wireModal("#settings-modal", "#btn-settings", "#btn-settings-close");
+
+// ── Global search (Ctrl+K): jump between open sessions ─────
+
+function escapeHtml(s: string): string {
+  const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return s.replace(/[&<>"']/g, (c) => map[c]);
+}
+
+const globalSearchModal = $("#global-search-modal");
+const globalSearchInput = $<HTMLInputElement>("#global-search-input");
+const globalSearchResults = $("#global-search-results");
+let searchSelIndex = 0;
+
+function globalSearchItems() {
+  return [...globalSearchResults.querySelectorAll<HTMLButtonElement>(".global-search-item")];
+}
+
+function renderGlobalSearchResults(query: string) {
+  const q = query.trim().toLowerCase();
+  const list = [...sessions.values()].filter(
+    (s) => !q || s.title.toLowerCase().includes(q) || (s.cwd ?? "").toLowerCase().includes(q),
+  );
+  searchSelIndex = 0;
+  if (!list.length) {
+    globalSearchResults.innerHTML = `<div class="global-search-empty">${t("globalSearchEmpty")}</div>`;
+    return;
+  }
+  globalSearchResults.innerHTML = list
+    .map(
+      (s, i) => `<button class="global-search-item${i === 0 ? " sel" : ""}" data-id="${s.id}">
+        <span class="tab-dot${s.alive ? "" : " dead"}"></span>
+        <span class="gsi-title">${escapeHtml(s.title)}</span>
+        <span class="gsi-cwd">${escapeHtml(s.cwd ?? "")}</span>
+      </button>`,
+    )
+    .join("");
+}
+
+function openGlobalSearch() {
+  globalSearchModal.classList.remove("hidden");
+  globalSearchInput.value = "";
+  renderGlobalSearchResults("");
+  globalSearchInput.focus();
+}
+function closeGlobalSearch() {
+  globalSearchModal.classList.add("hidden");
+}
+function selectGlobalSearchItem(id: string) {
+  setActive(id);
+  closeGlobalSearch();
+}
+
+globalSearchInput.addEventListener("input", () => renderGlobalSearchResults(globalSearchInput.value));
+globalSearchResults.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".global-search-item");
+  if (btn?.dataset.id) selectGlobalSearchItem(btn.dataset.id);
+});
+globalSearchInput.addEventListener("keydown", (e) => {
+  const items = globalSearchItems();
+  if (e.key === "Escape") {
+    closeGlobalSearch();
+  } else if (e.key === "Enter") {
+    const id = items[searchSelIndex]?.dataset.id;
+    if (id) selectGlobalSearchItem(id);
+  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!items.length) return;
+    items[searchSelIndex]?.classList.remove("sel");
+    searchSelIndex = (searchSelIndex + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items[searchSelIndex]?.classList.add("sel");
+    items[searchSelIndex]?.scrollIntoView({ block: "nearest" });
+  }
+});
+$("#btn-global-search").addEventListener("click", (e) => {
+  e.stopPropagation();
+  openGlobalSearch();
+});
+globalSearchModal.addEventListener("click", (e) => {
+  if (e.target === globalSearchModal) closeGlobalSearch();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && !e.shiftKey && e.code === "KeyK") {
+    e.preventDefault();
+    openGlobalSearch();
+  }
+});
+
+// ── Link toast + file preview ──────────────────────────────
+//
+// WebLinksAddon's default click handling gives no feedback in an always-
+// on-top overlay: a browser opening behind the window is invisible. Two
+// separate link providers cover the two cases users actually click on:
+// http(s) URLs (hand off to the OS browser + toast) and local file-looking
+// paths (read in-app and show a preview instead of doing nothing).
+
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
+const FILE_LINK_RE = new RegExp(
+  String.raw`(?<!\/\/)(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])?[\w.-]+(?:[\\/][\w.-]+)*\.(?:mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|${IMAGE_EXTS.join("|")})\b`,
+  "i",
+);
+
+// WebLinksAddon rejects any match that doesn't round-trip through `new
+// URL()`, which throws for a plain file path — it's built strictly for
+// http(s) links even when given a custom regex. A hand-rolled link
+// provider skips that filter. ASCII-only path chars, so index == column.
+function fileLinkProvider(term: Terminal, cwd: string | null) {
+  return {
+    provideLinks(y: number, cb: (links: import("@xterm/xterm").ILink[] | undefined) => void) {
+      const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+      const re = new RegExp(FILE_LINK_RE.source, "gi");
+      const links: import("@xterm/xterm").ILink[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) {
+        const full = m[0];
+        const start = m.index;
+        links.push({
+          range: { start: { x: start + 1, y }, end: { x: start + 1 + full.length, y } },
+          text: full,
+          activate: () => openFilePreview(full, cwd),
+        });
+      }
+      cb(links.length ? links : undefined);
+    },
+  };
+}
+
+let linkToastTimer = 0;
+function showLinkToast(text: string) {
+  const el = $("#link-toast");
+  el.textContent = text;
+  el.classList.remove("hidden");
+  clearTimeout(linkToastTimer);
+  linkToastTimer = window.setTimeout(() => el.classList.add("hidden"), 3000);
+}
+
+const filePreviewModal = $("#file-preview-modal");
+const filePreviewTitle = $("#file-preview-title");
+const filePreviewBody = $("#file-preview-body");
+$("#file-preview-close").addEventListener("click", () =>
+  filePreviewModal.classList.remove("open"),
+);
+
+// The click that opens the panel (a link inside the terminal) is still
+// bubbling up to document when it opens, so a plain outside-click listener
+// would immediately close what it just opened. Skip exactly that one click.
+let ignoreNextOutsideClick = false;
+document.addEventListener("click", (e) => {
+  if (ignoreNextOutsideClick) return;
+  if (
+    filePreviewModal.classList.contains("open") &&
+    !filePreviewModal.contains(e.target as Node)
+  ) {
+    filePreviewModal.classList.remove("open");
+  }
+});
+
+const MARKDOWN_EXT_RE = /\.(?:md|markdown)$/i;
+
+const LANG_BY_EXT: Record<string, string> = {
+  ts: "typescript", tsx: "typescript",
+  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
+  py: "python", rs: "rust", go: "go", rb: "ruby", php: "php",
+  c: "c", h: "c", cc: "cpp", cpp: "cpp", hpp: "cpp",
+  java: "java", kt: "kotlin", swift: "swift", cs: "csharp",
+  sql: "sql", xml: "xml", html: "xml", htm: "xml",
+  css: "css", scss: "scss", less: "less",
+  graphql: "graphql", lua: "lua", dockerfile: "dockerfile",
+  sh: "bash", ps1: "powershell",
+  json: "json", yaml: "yaml", yml: "yaml",
+  toml: "ini", ini: "ini", cfg: "ini", env: "ini",
+  diff: "diff", patch: "diff",
+};
+
+function langForPath(path: string): string | null {
+  const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1].toLowerCase();
+  return ext ? LANG_BY_EXT[ext] ?? null : null;
+}
+
+async function openFilePreview(raw: string, cwd: string | null) {
+  const isAbsolute =
+    /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("~");
+  const path = isAbsolute
+    ? raw
+    : `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\");
+  filePreviewTitle.textContent = raw;
+  filePreviewBody.className = "file-preview-body plain";
+  filePreviewBody.textContent = "…";
+  filePreviewModal.classList.add("open");
+  ignoreNextOutsideClick = true;
+  setTimeout(() => (ignoreNextOutsideClick = false), 0);
+  const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1].toLowerCase();
+  if (ext && IMAGE_EXTS.includes(ext)) {
+    try {
+      const dataUrl = await invoke<string>("read_image_data_url", { path });
+      filePreviewBody.className = "file-preview-body img";
+      filePreviewBody.replaceChildren();
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.alt = raw;
+      filePreviewBody.appendChild(img);
+    } catch (err) {
+      filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
+    }
+    return;
+  }
+  try {
+    const text = await invoke<string>("read_text_file", { path });
+    if (MARKDOWN_EXT_RE.test(path)) {
+      filePreviewBody.className = "file-preview-body md";
+      filePreviewBody.innerHTML = DOMPurify.sanitize(await marked.parse(text));
+    } else {
+      const lang = langForPath(path);
+      if (lang && hljs.getLanguage(lang)) {
+        filePreviewBody.className = "file-preview-body code";
+        const html = hljs.highlight(text, { language: lang }).value;
+        filePreviewBody.innerHTML = `<pre><code class="hljs">${DOMPurify.sanitize(html)}</code></pre>`;
+      } else {
+        filePreviewBody.className = "file-preview-body plain";
+        filePreviewBody.textContent = text;
+      }
+    }
+  } catch (err) {
+    filePreviewBody.className = "file-preview-body plain";
+    // A bare name with no path separators (e.g. from a bullet list) was
+    // guessed relative to the session folder — say so instead of just
+    // surfacing a raw "file not found", since the real folder is unknown.
+    const bareName = !isAbsolute && !/[\\/]/.test(raw);
+    filePreviewBody.textContent = bareName
+      ? `${t("filePreviewNotFoundBare")}\n\n"${raw}" — ${t("filePreviewTriedIn")} ${path}`
+      : `${t("filePreviewError")}: ${path}\n${err}`;
+  }
+}
 
 $("#away-close").addEventListener("click", () =>
   $("#away-banner").classList.add("hidden"),

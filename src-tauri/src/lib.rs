@@ -109,6 +109,25 @@ fn valid_utf8_split(buf: &[u8]) -> (usize, bool) {
     }
 }
 
+// Warp-style "blocks" for plain-shell sessions only: redefine the PowerShell
+// prompt to emit OSC 133 shell-integration markers (A = prompt start,
+// B = command start, D;<exit> = command finished) around itself. No double
+// quotes anywhere in this script — it travels as a single command-line
+// argument and quoting Windows argv correctly with embedded quotes is
+// fragile, so it's simplest to just not need any.
+const PS_PROMPT_PRELUDE: &str = r#"function prompt {
+  $e = [char]27; $bell = [char]7
+  $code = 0
+  if (-not $?) { if ($LASTEXITCODE) { $code = $LASTEXITCODE } else { $code = 1 } }
+  $out = ''
+  if ($global:AfkodeRan) { $out += $e + ']133;D;' + $code + $bell }
+  $out += $e + ']133;A' + $bell
+  $out += 'PS ' + (Get-Location) + '> '
+  $global:AfkodeRan = $true
+  $out += $e + ']133;B' + $bell
+  $out
+}"#;
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn spawn_pty(
@@ -134,7 +153,7 @@ fn spawn_pty(
     let trimmed = cmd.trim();
     let mut builder = if trimmed.is_empty() {
         let mut b = CommandBuilder::new("powershell.exe");
-        b.args(["-NoLogo"]);
+        b.args(["-NoLogo", "-NoExit", "-Command", PS_PROMPT_PRELUDE]);
         b
     } else if (trimmed == "claude" || trimmed.starts_with("claude ")) && hooks {
         // Opt-in integration: inject hook settings so the agent reports
@@ -378,6 +397,131 @@ fn list_dir(base: String, prefix: String) -> Vec<DirEntry> {
     out
 }
 
+/// Expand a leading `~` (agents print paths this way) to the user's home
+/// directory; Windows has no shell to do this for us.
+fn expand_tilde(path: &str) -> String {
+    match path.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with(['\\', '/']) => {
+            match std::env::var("USERPROFILE") {
+                Ok(home) => format!("{home}{rest}"),
+                Err(_) => path.to_string(),
+            }
+        }
+        _ => path.to_string(),
+    }
+}
+
+/// Read an image file as a data URL for the preview panel. Tauri's asset
+/// protocol would need a broader filesystem scope grant for arbitrary
+/// clicked-on paths, so this just hands back inline base64 instead.
+#[tauri::command]
+fn read_image_data_url(path: String) -> Result<String, String> {
+    const MAX_BYTES: u64 = 8 * 1024 * 1024;
+    let path = expand_tilde(&path);
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    if meta.len() > MAX_BYTES {
+        return Err("image too large to preview (>8 MB)".into());
+    }
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "svg" => "image/svg+xml",
+        _ => return Err("unsupported image type".into()),
+    };
+    use base64::Engine;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
+/// Read a text file for the in-app preview panel. Capped so a click on a huge
+/// log doesn't stall the UI; binary files are rejected rather than dumped as
+/// garbled text.
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    const MAX_BYTES: u64 = 512 * 1024;
+    let path = expand_tilde(&path);
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let truncated = bytes.len() as u64 > MAX_BYTES;
+    let slice = if truncated { &bytes[..MAX_BYTES as usize] } else { &bytes[..] };
+    if slice.contains(&0) {
+        return Err("binary file".into());
+    }
+    let text = String::from_utf8_lossy(slice).into_owned();
+    Ok(if truncated {
+        format!("{text}\n\n… truncated (file is larger than 512 KB)")
+    } else {
+        text
+    })
+}
+
+fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
+    let mut c = std::process::Command::new("git");
+    c.args(args);
+    c.current_dir(cwd);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = c.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[derive(Serialize)]
+struct GitStatus {
+    branch: String,
+    added: u32,
+    removed: u32,
+    dirty: bool,
+}
+
+/// Branch + working-tree diff stat for the footer, Warp-style. `None` when
+/// `cwd` isn't inside a git repo (or `git` isn't on PATH) — the footer just
+/// hides the chip rather than showing an error.
+#[tauri::command]
+fn git_status(cwd: String) -> Option<GitStatus> {
+    let branch = run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let shortstat = run_git(&cwd, &["diff", "--shortstat"]).unwrap_or_default();
+    let porcelain = run_git(&cwd, &["status", "--porcelain"]).unwrap_or_default();
+    let mut added = 0u32;
+    let mut removed = 0u32;
+    for part in shortstat.split(',') {
+        let part = part.trim();
+        if let Some(n) = part
+            .strip_suffix(" insertion(+)")
+            .or_else(|| part.strip_suffix(" insertions(+)"))
+        {
+            added = n.trim().parse().unwrap_or(0);
+        } else if let Some(n) = part
+            .strip_suffix(" deletion(-)")
+            .or_else(|| part.strip_suffix(" deletions(-)"))
+        {
+            removed = n.trim().parse().unwrap_or(0);
+        }
+    }
+    Some(GitStatus { branch, added, removed, dirty: !porcelain.is_empty() })
+}
+
 /// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe).
 #[tauri::command]
 fn detect_clis(names: Vec<String>) -> Vec<bool> {
@@ -491,11 +635,17 @@ fn set_memory_saver(app: &AppHandle, low: bool) {
 
 fn toggle_overlay(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
+        // A minimized window still reports is_visible() == true on Windows
+        // (WS_VISIBLE stays set while iconified), so without this check
+        // Alt+X on a minimized window just hides it again instead of
+        // restoring it — looks like the app is stuck.
+        let shown = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+        if shown {
             let _ = window.hide();
             let _ = app.emit("overlay-hidden", ());
             set_memory_saver(app, true);
         } else {
+            let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
             let _ = app.emit("overlay-shown", ());
@@ -523,6 +673,18 @@ fn set_ghost_mode(app: AppHandle, enabled: bool) {
     }
 }
 
+/// Overlay mode (always-on-top, hidden from taskbar/Alt-Tab) vs. a normal
+/// window — users forget it's an overlay outside of games, where staying
+/// topmost just means it randomly buries or gets buried by other fullscreen
+/// apps instead of behaving predictably.
+#[tauri::command]
+fn set_window_mode(app: AppHandle, overlay: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(overlay);
+        let _ = window.set_skip_taskbar(!overlay);
+    }
+}
+
 #[tauri::command]
 fn hide_overlay(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -535,6 +697,9 @@ fn hide_overlay(app: AppHandle) {
 #[tauri::command]
 fn show_overlay(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // In window mode the OS minimize button can leave it minimized;
+        // show() alone doesn't undo that, so always unminimize too.
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         let _ = app.emit("overlay-shown", ());
@@ -649,6 +814,7 @@ pub fn run() {
             resize_pty,
             kill_pty,
             set_ghost_mode,
+            set_window_mode,
             hide_overlay,
             show_overlay,
             set_hud_visible,
@@ -658,7 +824,10 @@ pub fn run() {
             detect_clis,
             list_dir,
             save_temp_image,
-            clipboard_image_to_temp
+            clipboard_image_to_temp,
+            read_text_file,
+            read_image_data_url,
+            git_status
         ])
         .setup(|app| {
             // Silent auto-update: check GitHub Releases in the background,
