@@ -32,9 +32,10 @@ Built with **Tauri 2** (Rust + WebView2) and **xterm.js with the WebGL renderer*
 - **Memory saver**: hiding the overlay trims the host working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
 - **Folder picker**: sessions start in a project folder chosen via the native Windows dialog.
 - **CLI detection**: launchers detect which agents are installed; missing ones install with one click (`npm install -g …` in a tab).
-- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell).
+- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` searches open sessions.
+- **Git footer**: branch, `+added/-removed` diff stat and dirty indicator for the active session's folder, Warp-style.
 - **Real terminal (ConPTY)**: truecolor, interactive apps, GPU-rendered. Copy-on-select, `Ctrl+Shift+C/V`, right-click copy/paste (inside TUIs, select with `Shift+drag`).
-- **Customization**: 6 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox), font family/size, English/Spanish UI, background opacity slider.
+- **Customization**: 9 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Dark, Monokai), font family/size, English/Spanish UI, background opacity slider.
 - **Window memory**: position and size are restored across sessions.
 
 ## Development

@@ -19,11 +19,94 @@ const PALETTE_SHORTCUT: &str = "alt+p";
 const PALETTE_SHORTCUT_ALT: &str = "ctrl+alt+p";
 const DND_SHORTCUT: &str = "alt+n";
 
+/// Owns a Windows Job Object with KILL_ON_JOB_CLOSE: dropping the last
+/// handle terminates every process assigned to the job. Killing only the
+/// direct PTY child (always `cmd.exe` here) leaves the real workload —
+/// claude/node — running headless after the tab is "closed"; the job takes
+/// the whole tree down with it.
+#[cfg(target_os = "windows")]
+struct JobHandle(windows_sys::Win32::Foundation::HANDLE);
+#[cfg(target_os = "windows")]
+unsafe impl Send for JobHandle {}
+#[cfg(target_os = "windows")]
+unsafe impl Sync for JobHandle {}
+#[cfg(target_os = "windows")]
+impl Drop for JobHandle {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+#[cfg(not(target_os = "windows"))]
+struct JobHandle;
+
+#[cfg(target_os = "windows")]
+fn job_for_child(pid: u32) -> Option<JobHandle> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    };
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return None;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        ) == 0
+        {
+            CloseHandle(job);
+            return None;
+        }
+        let proc = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if proc.is_null() {
+            CloseHandle(job);
+            return None;
+        }
+        let ok = AssignProcessToJobObject(job, proc);
+        CloseHandle(proc);
+        if ok == 0 {
+            CloseHandle(job);
+            return None;
+        }
+        Some(JobHandle(job))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn job_for_child(_pid: u32) -> Option<JobHandle> {
+    None
+}
+
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    // Arc so write_pty can pull the writer out and release the sessions map
+    // before doing blocking I/O: a full ConPTY input pipe (child stopped,
+    // user pasting) blocking write_all while holding the map lock would
+    // wedge every other command — including the kill_pty that could unblock
+    // it — freezing the whole app.
+    writer: std::sync::Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
+    /// Generation stamp: lets a stale reader thread (from a session id
+    /// reused after a webview reload) detect that the entry now belongs to
+    /// a newer session and leave it alone.
+    gen: u64,
+    /// Kills the whole process tree when the session is dropped.
+    _job: Option<JobHandle>,
 }
+
+static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[derive(Default)]
 struct PtyState {
@@ -36,30 +119,69 @@ static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
 /// report real agent state (tool use, permissions, turn end) back to us.
 static HOOKS_FILE: OnceLock<PathBuf> = OnceLock::new();
 
+/// Shared secret baked into the hook URLs. The listener binds to 127.0.0.1,
+/// but that alone doesn't stop other local processes — or any webpage doing a
+/// `fetch()` to a localhost port — from POSTing forged agent-hook events.
+/// Requests without the token are dropped.
+static HOOK_TOKEN: OnceLock<String> = OnceLock::new();
+
+fn hook_token() -> &'static str {
+    HOOK_TOKEN.get_or_init(|| {
+        use std::hash::{BuildHasher, Hasher};
+        // RandomState is seeded from OS randomness; two independent states
+        // give 128 unpredictable bits without pulling in a rand crate.
+        let mut out = String::with_capacity(32);
+        for _ in 0..2 {
+            let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+            h.write_u32(std::process::id());
+            out.push_str(&format!("{:016x}", h.finish()));
+        }
+        out
+    })
+}
+
 /// Local HTTP listener that Claude Code hooks POST their JSON payload to.
 /// Each request body is forwarded to the frontend as `agent-hook`. The
 /// `Notification` hook's `matcher` (permission_prompt vs idle_prompt — a
-/// documented, stable enum) is a config-time filter, not part of the hook's
-/// own JSON payload, so `write_hooks_settings` registers it via a distinct
-/// URL per matcher and this recovers it from the query string, merging it
-/// into the JSON as `afkode_notif_type` before forwarding.
+/// documented, stable enum) is a config-time filter, so `write_hooks_settings`
+/// registers it via a distinct URL per matcher and this recovers it from the
+/// query string, merging it into the JSON as `afkode_notif_type` before
+/// forwarding — a defensive fallback for the frontend, which primarily reads
+/// Claude Code's own native `notification_type` field (confirmed present via
+/// a live hook-payload capture; earlier docs review had wrongly assumed the
+/// matcher never appears in the JSON at all).
 fn start_hook_server(app: AppHandle) -> Option<u16> {
     for port in 4517..4527u16 {
         match tiny_http::Server::http(("127.0.0.1", port)) {
             Ok(server) => {
                 std::thread::spawn(move || {
                     for mut req in server.incoming_requests() {
+                        let query = req.url().split_once('?').map(|(_, q)| q.to_string());
+                        let param = |name: &str| {
+                            query.as_deref().and_then(|q| {
+                                q.split('&').find_map(|kv| {
+                                    kv.strip_prefix(name)
+                                        .and_then(|v| v.strip_prefix('='))
+                                        .map(|v| v.to_string())
+                                })
+                            })
+                        };
+                        if param("k").as_deref() != Some(hook_token()) {
+                            let _ = req.respond(tiny_http::Response::empty(403));
+                            continue;
+                        }
                         let mut body = String::new();
-                        let _ = req.as_reader().read_to_string(&mut body);
+                        // Cap the accepted body: hook payloads are small JSON;
+                        // don't let a rogue local client feed us gigabytes.
+                        let _ = req
+                            .as_reader()
+                            .take(1024 * 1024)
+                            .read_to_string(&mut body);
                         if body.is_empty() {
                             let _ = req.respond(tiny_http::Response::empty(200));
                             continue;
                         }
-                        let notif_type = req.url().split_once('?').and_then(|(_, q)| {
-                            q.split('&').find_map(|kv| {
-                                kv.strip_prefix("notif=").map(|v| v.to_string())
-                            })
-                        });
+                        let notif_type = param("notif");
                         let payload = match notif_type {
                             Some(kind) => match serde_json::from_str::<serde_json::Value>(&body) {
                                 Ok(mut v) => {
@@ -88,8 +210,11 @@ fn start_hook_server(app: AppHandle) -> Option<u16> {
 }
 
 fn write_hooks_settings(dir: PathBuf, port: u16) -> std::io::Result<PathBuf> {
+    let token = hook_token();
     let post = |suffix: &str| {
-        format!("curl -s -m 2 -X POST \"http://127.0.0.1:{port}/e{suffix}\" --data-binary @-")
+        format!(
+            "curl -s -m 2 -X POST \"http://127.0.0.1:{port}/e?k={token}{suffix}\" --data-binary @-"
+        )
     };
     let tool_hook = serde_json::json!([{
         "matcher": "*",
@@ -108,11 +233,11 @@ fn write_hooks_settings(dir: PathBuf, port: u16) -> std::io::Result<PathBuf> {
     let notification_hook = serde_json::json!([
         {
             "matcher": "permission_prompt",
-            "hooks": [{ "type": "command", "command": post("?notif=permission_prompt") }]
+            "hooks": [{ "type": "command", "command": post("&notif=permission_prompt") }]
         },
         {
             "matcher": "idle_prompt",
-            "hooks": [{ "type": "command", "command": post("?notif=idle_prompt") }]
+            "hooks": [{ "type": "command", "command": post("&notif=idle_prompt") }]
         }
     ]);
     let settings = serde_json::json!({
@@ -143,6 +268,83 @@ struct PtyExit<'a> {
     exit_code: Option<u32>,
 }
 
+/// Split a user-typed flags string Windows-style: whitespace separates,
+/// double quotes group, and backslash is a literal path character. (POSIX
+/// splitters like shell_words treat `\` as an escape and silently eat it —
+/// `--add-dir C:\projects\app` came out as `C:projectsapp`.)
+fn split_flags(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for c in s.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c.is_whitespace() && !quoted => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_flags_windows_paths_survive() {
+        assert_eq!(
+            split_flags(r"--add-dir C:\projects\app --resume"),
+            vec![r"--add-dir", r"C:\projects\app", "--resume"]
+        );
+    }
+
+    #[test]
+    fn split_flags_quotes_group() {
+        assert_eq!(
+            split_flags(r#"--append-system-prompt "be very careful" -c"#),
+            vec!["--append-system-prompt", "be very careful", "-c"]
+        );
+    }
+
+    #[test]
+    fn split_flags_quoted_path_with_spaces() {
+        assert_eq!(
+            split_flags(r#"--add-dir "C:\Users\Foo Bar\proj""#),
+            vec!["--add-dir", r"C:\Users\Foo Bar\proj"]
+        );
+    }
+
+    #[test]
+    fn split_flags_empty_and_whitespace() {
+        assert!(split_flags("").is_empty());
+        assert!(split_flags("   ").is_empty());
+    }
+
+    #[test]
+    fn expand_tilde_variants() {
+        let home = std::env::var("USERPROFILE").unwrap();
+        assert_eq!(expand_tilde("~"), home);
+        assert_eq!(expand_tilde(r"~\x"), format!(r"{home}\x"));
+        assert_eq!(expand_tilde("~user/x"), "~user/x");
+        assert_eq!(expand_tilde(r"C:\x"), r"C:\x");
+    }
+
+    #[test]
+    fn utf8_split_handles_partial_codepoint() {
+        // "é" = 0xC3 0xA9; feed only the first byte.
+        assert_eq!(valid_utf8_split(&[b'a', 0xC3]), (1, true));
+        // Invalid byte mid-stream flushes lossily.
+        assert_eq!(valid_utf8_split(&[b'a', 0xFF, b'b']), (1, false));
+    }
+}
+
 /// Split `buf` at the largest prefix that is valid UTF-8. Returns the split
 /// point and whether the remainder is just an incomplete trailing codepoint.
 fn valid_utf8_split(buf: &[u8]) -> (usize, bool) {
@@ -159,7 +361,7 @@ fn valid_utf8_split(buf: &[u8]) -> (usize, bool) {
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-fn spawn_pty(
+async fn spawn_pty(
     app: AppHandle,
     state: State<'_, PtyState>,
     id: String,
@@ -191,9 +393,7 @@ fn spawn_pty(
         let mut b = CommandBuilder::new("cmd.exe");
         let mut args: Vec<String> = vec!["/c".into(), "claude".into()];
         if let Some(rest) = trimmed.strip_prefix("claude") {
-            if let Ok(extra) = shell_words::split(rest.trim()) {
-                args.extend(extra);
-            }
+            args.extend(split_flags(rest.trim()));
         }
         if let Some(hooks_file) = HOOKS_FILE.get() {
             args.push("--settings".into());
@@ -203,8 +403,14 @@ fn spawn_pty(
         b.args(refs);
         b
     } else {
+        // Pass the raw line through an env var that cmd expands itself:
+        // handing it over as an argument would run it through ArgvQuote,
+        // which wraps the whole command in quotes and escapes embedded `"`
+        // as `\"` — a syntax cmd.exe does not parse — silently corrupting
+        // any command containing quotes (e.g. `git commit -m "fix: x"`).
         let mut b = CommandBuilder::new("cmd.exe");
-        b.args(["/c", trimmed]);
+        b.env("AFKODE_CMD", trimmed);
+        b.args(["/c", "%AFKODE_CMD%"]);
         b
     };
     let dir = cwd
@@ -226,12 +432,16 @@ fn spawn_pty(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
+    let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let job = child.process_id().and_then(job_for_child);
     state.sessions.lock().unwrap().insert(
         id.clone(),
         PtySession {
             master: pair.master,
-            writer,
+            writer: std::sync::Arc::new(Mutex::new(writer)),
             child,
+            gen,
+            _job: job,
         },
     );
 
@@ -280,36 +490,56 @@ fn spawn_pty(
                 },
             );
         }
-        // The PTY closing means the child is gone or about to be reaped;
-        // wait() on the handle we're removing anyway to learn how it
-        // actually exited, instead of just discarding it.
-        let exit_code = app.try_state::<PtyState>().and_then(|state| {
-            state
-                .sessions
-                .lock()
-                .unwrap()
-                .remove(&id)
-                .and_then(|mut s| s.child.wait().ok())
-                .map(|status| status.exit_code())
+        // The PTY closing means the child is gone or about to be reaped.
+        // Take the session out under the lock, but wait() on the child
+        // OUTSIDE it — WaitForSingleObject under the map lock would stall
+        // every other session if teardown is slow. If the entry's gen
+        // doesn't match, a newer session reused this id (webview reload):
+        // it isn't ours to reap, and emitting pty-exit for it would kill a
+        // live tab in the UI.
+        let mut superseded = false;
+        let session = app.try_state::<PtyState>().and_then(|state| {
+            let mut sessions = state.sessions.lock().unwrap();
+            if sessions.get(&id).is_some_and(|s| s.gen != gen) {
+                superseded = true;
+                return None;
+            }
+            sessions.remove(&id)
         });
-        let _ = app.emit("pty-exit", PtyExit { id: &id, exit_code });
+        let exit_code = session
+            .and_then(|mut s| s.child.wait().ok())
+            .map(|status| status.exit_code());
+        if !superseded {
+            let _ = app.emit("pty-exit", PtyExit { id: &id, exit_code });
+        }
     });
 
     Ok(())
 }
 
 #[tauri::command]
-fn write_pty(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().unwrap();
-    let session = sessions.get_mut(&id).ok_or("session not found")?;
-    session
-        .writer
+async fn write_pty(state: State<'_, PtyState>, id: String, data: String) -> Result<(), String> {
+    // Fetch the writer and drop the map lock before the (potentially
+    // blocking) write — see the comment on PtySession::writer.
+    let writer = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions.get(&id).ok_or("session not found")?.writer.clone()
+    };
+    let result = writer
+        .lock()
+        .unwrap()
         .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    result
 }
 
 #[tauri::command]
-fn resize_pty(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+async fn resize_pty(
+    state: State<'_, PtyState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();
     let session = sessions.get(&id).ok_or("session not found")?;
     session
@@ -324,7 +554,7 @@ fn resize_pty(state: State<'_, PtyState>, id: String, cols: u16, rows: u16) -> R
 }
 
 #[tauri::command]
-fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
+async fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(mut session) = sessions.remove(&id) {
         let _ = session.child.kill();
@@ -390,7 +620,7 @@ fn augmented_path() -> String {
 /// Save a base64 PNG from the clipboard to a temp file; returns its path so
 /// the frontend can hand it to the agent (Claude Code reads image paths).
 #[tauri::command]
-fn save_temp_image(data: String) -> Result<String, String> {
+async fn save_temp_image(data: String) -> Result<String, String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
@@ -409,7 +639,7 @@ fn save_temp_image(data: String) -> Result<String, String> {
 /// If the OS clipboard holds an image, save it as a temp PNG and return the
 /// path (hidden PowerShell does the bitmap decoding — no extra crates).
 #[tauri::command]
-fn clipboard_image_to_temp() -> Result<String, String> {
+async fn clipboard_image_to_temp() -> Result<String, String> {
     let dir = std::env::temp_dir().join("afkode-paste");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stamp = std::time::SystemTime::now()
@@ -417,9 +647,12 @@ fn clipboard_image_to_temp() -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .as_millis();
     let path = dir.join(format!("paste-{stamp}.png"));
+    // PowerShell single-quote escaping ('' inside '…'): %TEMP% contains the
+    // username, and Windows allows ' in usernames — an unescaped quote both
+    // breaks the script and is a string-injection point.
+    let ps_path = path.display().to_string().replace('\'', "''");
     let script = format!(
-        "$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{}') }}",
-        path.display()
+        "$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{ps_path}') }}"
     );
     let mut c = std::process::Command::new("powershell.exe");
     c.args(["-NoProfile", "-Command", &script]);
@@ -445,7 +678,7 @@ struct DirEntry {
 /// Complete a relative path fragment against a base directory (palette `@`
 /// completion). Returns entries with the fragment's directory part prefixed.
 #[tauri::command]
-fn list_dir(base: String, prefix: String) -> Vec<DirEntry> {
+async fn list_dir(base: String, prefix: String) -> Vec<DirEntry> {
     let frag = prefix.replace('/', "\\");
     let (sub, pre) = match frag.rfind('\\') {
         Some(i) => (&frag[..i + 1], &frag[i + 1..]),
@@ -490,7 +723,7 @@ fn expand_tilde(path: &str) -> String {
 /// protocol would need a broader filesystem scope grant for arbitrary
 /// clicked-on paths, so this just hands back inline base64 instead.
 #[tauri::command]
-fn read_image_data_url(path: String) -> Result<String, String> {
+async fn read_image_data_url(path: String) -> Result<String, String> {
     const MAX_BYTES: u64 = 8 * 1024 * 1024;
     let path = expand_tilde(&path);
     let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -525,7 +758,7 @@ fn read_image_data_url(path: String) -> Result<String, String> {
 /// log doesn't stall the UI; binary files are rejected rather than dumped as
 /// garbled text.
 #[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
+async fn read_text_file(path: String) -> Result<String, String> {
     const MAX_BYTES: u64 = 512 * 1024;
     let path = expand_tilde(&path);
     let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -574,7 +807,7 @@ struct GitStatus {
 /// `cwd` isn't inside a git repo (or `git` isn't on PATH) — the footer just
 /// hides the chip rather than showing an error.
 #[tauri::command]
-fn git_status(cwd: String) -> Option<GitStatus> {
+async fn git_status(cwd: String) -> Option<GitStatus> {
     let branch = run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let shortstat = run_git(&cwd, &["diff", "--shortstat"]).unwrap_or_default();
     let porcelain = run_git(&cwd, &["status", "--porcelain"]).unwrap_or_default();
@@ -599,7 +832,7 @@ fn git_status(cwd: String) -> Option<GitStatus> {
 
 /// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe).
 #[tauri::command]
-fn detect_clis(names: Vec<String>) -> Vec<bool> {
+async fn detect_clis(names: Vec<String>) -> Vec<bool> {
     names
         .iter()
         .map(|n| {
@@ -625,7 +858,8 @@ fn game_foreground() -> bool {
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId,
+        GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+        GetWindowThreadProcessId, GWL_STYLE, WS_MAXIMIZE,
     };
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -642,6 +876,14 @@ fn game_foreground() -> bool {
         let class = String::from_utf16_lossy(&class_buf[..n.max(0) as usize]);
         // The desktop shell also covers the monitor; it is not a game.
         if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd") {
+            return false;
+        }
+        // A maximized normal window is not a fullscreen game, but with an
+        // auto-hidden taskbar its rect (inflated by invisible resize
+        // borders) covers the whole monitor and would pass the check below
+        // — maximizing Chrome must not flip do-not-disturb on.
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+        if style & WS_MAXIMIZE != 0 {
             return false;
         }
         let mut rect = RECT {
@@ -850,6 +1092,33 @@ fn set_tray_labels(app: AppHandle, toggle: String, ghost: String, palette: Strin
     });
 }
 
+/// Download and install a pending update after explicit user consent. On
+/// Windows the installer terminates this process, so PTY children are
+/// killed first — otherwise claude/conhost would be orphaned mid-install.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("no update available")?;
+    if let Some(state) = app.try_state::<PtyState>() {
+        let mut sessions = state.sessions.lock().unwrap();
+        for (_, mut s) in sessions.drain() {
+            let _ = s.child.kill();
+        }
+    }
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    // Only reached if the installer didn't terminate us (e.g. non-Windows).
+    let _ = app.emit("update-installed", update.version.clone());
+    Ok(())
+}
+
 #[tauri::command]
 fn show_palette(app: AppHandle) {
     if let Some(palette) = app.get_webview_window("palette") {
@@ -869,6 +1138,19 @@ fn hide_palette(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin. A second launch would fight the first
+        // over global hotkeys, hook ports and the shared afkode-hooks.json
+        // (each instance overwrites it with its own port+token) — surface
+        // the already-running overlay instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = app.emit("overlay-shown", ());
+                set_memory_saver(app, false);
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -903,11 +1185,15 @@ pub fn run() {
             clipboard_image_to_temp,
             read_text_file,
             read_image_data_url,
-            git_status
+            git_status,
+            install_update
         ])
         .setup(|app| {
-            // Silent auto-update: check GitHub Releases in the background,
-            // install if newer, and let the frontend tell the user to restart.
+            // Update check only — installing is gated on user consent
+            // (install_update command): on Windows download_and_install
+            // terminates the process to run the installer, so doing it
+            // silently in the background would kill the app out from under
+            // the user mid-session and orphan every PTY child.
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -916,10 +1202,7 @@ pub fn run() {
                     let Ok(Some(update)) = updater.check().await else {
                         return;
                     };
-                    let version = update.version.clone();
-                    if update.download_and_install(|_, _| {}, || {}).await.is_ok() {
-                        let _ = handle.emit("update-installed", version);
-                    }
+                    let _ = handle.emit("update-available", update.version.clone());
                 });
             }
 
@@ -1042,14 +1325,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Kill PTY children on close so conhost/claude don't outlive us
-            // and wedge process shutdown.
-            if let tauri::WindowEvent::Destroyed = event {
-                let state = window.app_handle().state::<PtyState>();
-                let mut sessions = state.sessions.lock().unwrap();
-                for (_, mut s) in sessions.drain() {
-                    let _ = s.child.kill();
+            match event {
+                // Alt+F4 (works even without decorations) would otherwise
+                // destroy the webview: every PTY dies and the tray icon is
+                // left pointing at a gone window. Behave like the × button
+                // instead — hide to the tray, recoverable via Alt+X.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    if window.label() == "main" {
+                        let app = window.app_handle();
+                        let _ = app.emit("overlay-hidden", ());
+                        set_memory_saver(app, true);
+                    }
                 }
+                // Kill PTY children on close so conhost/claude don't outlive
+                // us and wedge process shutdown.
+                tauri::WindowEvent::Destroyed => {
+                    let state = window.app_handle().state::<PtyState>();
+                    let mut sessions = state.sessions.lock().unwrap();
+                    for (_, mut s) in sessions.drain() {
+                        let _ = s.child.kill();
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

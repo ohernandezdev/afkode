@@ -364,6 +364,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     hudDone: "listo",
     updateReady:
       "AFKode {v} instalado — se aplicará al reiniciar la app (menú de la bandeja → Salir)",
+    updateAvailable: "AFKode {v} disponible",
+    updateInstallBtn: "Actualizar y reiniciar",
+    updateInstalling: "Descargando la actualización… la app se reiniciará sola",
+    updateFailed: "La actualización falló",
     awaySummary:
       "Mientras no mirabas ({away} min): {turns} turnos completados · {tools} herramientas · {files} archivos · te esperó {waits} veces ({waitMin} min)",
   },
@@ -476,6 +480,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     hudDone: "done",
     updateReady:
       "AFKode {v} installed — applies when you restart the app (tray menu → Quit)",
+    updateAvailable: "AFKode {v} is available",
+    updateInstallBtn: "Update & restart",
+    updateInstalling: "Downloading the update… the app will restart itself",
+    updateFailed: "Update failed",
     awaySummary:
       "While you were away ({away} min): {turns} turns completed · {tools} tools · {files} files · it waited for you {waits} times ({waitMin} min)",
   },
@@ -611,7 +619,8 @@ function updatePickedFolderLabel() {
 
 function recentFolders(): string[] {
   try {
-    return JSON.parse(localStorage.getItem("recent-folders") ?? "[]");
+    const v = JSON.parse(localStorage.getItem("recent-folders") ?? "[]");
+    return Array.isArray(v) ? v : [];
   } catch {
     return [];
   }
@@ -675,7 +684,12 @@ function setActive(id: string) {
   if (s) {
     requestAnimationFrame(() => {
       safeFit(s.term, s.fit, s.pane);
-      s.term.focus();
+      // Don't steal focus from the tab-rename editor: a dblclick fires two
+      // clicks (→ setActive) first, and this deferred focus would blur the
+      // just-opened input, closing it before the user can type.
+      if (!(document.activeElement as HTMLElement | null)?.classList.contains("tab-title-edit")) {
+        s.term.focus();
+      }
     });
   }
 }
@@ -684,6 +698,16 @@ function closeSession(id: string) {
   const s = sessions.get(id);
   if (!s) return;
   sessions.delete(id);
+  // Closing the wizard's install tab means its pty-exit will early-return
+  // (session gone from the map) — resolve the wizard state here instead of
+  // leaving it stuck on "Installing…" with its button disabled forever.
+  if (id === wizActiveSessionId) {
+    wizActiveSessionId = null;
+    wizBusy = 0;
+    wizLogStatus.textContent = t("wizInstallFailed");
+    wizLogStatus.className = "wiz-log-status fail";
+    wizardRefresh();
+  }
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
   s.term.dispose();
   s.pane.remove();
@@ -1004,6 +1028,11 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
       cols: term.cols,
       rows: term.rows,
     });
+    // Tab closed while the spawn was in flight: closeSession's kill_pty
+    // predated the PTY registration and was a no-op — kill it now.
+    if (!sessions.has(id)) {
+      invoke("kill_pty", { id }).catch(() => {});
+    }
   } catch (e) {
     dismissLoader(session);
     term.writeln(`\x1b[31m${t("spawnError")}: ${e}\x1b[0m`);
@@ -1046,7 +1075,12 @@ const gitAddedChip = $("#git-added-chip");
 const gitRemovedChip = $("#git-removed-chip");
 const gitDirtyChip = $("#git-dirty-chip");
 
+// Guards against out-of-order responses: a slow git_status for the previous
+// tab's repo must not overwrite the chips after a quick tab switch.
+let gitStatusSeq = 0;
+
 async function updateGitStatus() {
+  const seq = ++gitStatusSeq;
   const s = activeId ? sessions.get(activeId) : null;
   if (!s?.cwd) {
     gitChipWrap.classList.add("hidden");
@@ -1054,6 +1088,7 @@ async function updateGitStatus() {
   }
   try {
     const g = await invoke<GitStatus | null>("git_status", { cwd: s.cwd });
+    if (seq !== gitStatusSeq) return;
     if (!g) {
       gitChipWrap.classList.add("hidden");
       return;
@@ -1093,9 +1128,16 @@ const WAITING_RE =
 const SILENCE_WAITING_MS = 12_000;
 const SILENCE_DONE_MS = 45_000;
 
+// One shared context, lazily created: Chromium caps concurrent
+// AudioContexts per page, so allocating a fresh one per beep (and never
+// closing it) makes the sound silently die after a handful of plays.
+let beepCtx: AudioContext | null = null;
+
 function beep() {
   try {
-    const ctx = new AudioContext();
+    beepCtx ??= new AudioContext();
+    const ctx = beepCtx;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = 880;
@@ -1231,16 +1273,13 @@ listen<string>("agent-hook", (e) => {
     message?: string;
     tool_name?: string;
     tool_input?: Record<string, unknown>;
-    // Not part of Claude Code's own payload — the Rust side recovers this
-    // from the registration-time matcher (permission_prompt/idle_prompt,
-    // a documented, stable enum: https://code.claude.com/docs/en/hooks)
-    // and injects it, since the matcher itself never travels in the JSON.
+    // Claude Code does send this natively on Notification events — confirmed
+    // by capturing a live payload (v2.1.205), which contradicted the original
+    // assumption here. `afkode_notif_type` (recovered from the registration
+    // matcher via URL query string — see write_hooks_settings) is kept as a
+    // fallback in case a future/older version ever omits the native field.
+    notification_type?: "permission_prompt" | "idle_prompt";
     afkode_notif_type?: "permission_prompt" | "idle_prompt";
-    // Documented common field, not sent on every event. "bypassPermissions"
-    // is the one unambiguous value here — it means nothing is ever actually
-    // pending a human decision, so a permission_prompt notification under it
-    // can't really be "waiting on you" no matter what it looks like.
-    permission_mode?: string;
   };
   try {
     p = JSON.parse(e.payload);
@@ -1251,13 +1290,15 @@ listen<string>("agent-hook", (e) => {
   if (!s) return;
   s.hook.seen = true;
   switch (p.hook_event_name) {
-    case "Notification":
+    case "Notification": {
       // Two distinct registrations (see write_hooks_settings) — a real
       // permission prompt vs. a generic "still idle" nudge after ~60s of
       // silence with nothing actually blocking. Only the former is truly
-      // waiting on you — and only if permissions aren't bypassed, in which
-      // case nothing is really pending a decision even if this still fires.
-      if (p.afkode_notif_type === "permission_prompt" && p.permission_mode !== "bypassPermissions") {
+      // waiting on you. (A `--dangerously-skip-permissions` session never
+      // sends a permission_prompt Notification at all — confirmed live —
+      // so there's no bypass case to special-case here.)
+      const kind = p.notification_type ?? p.afkode_notif_type;
+      if (kind === "permission_prompt") {
         startWait(s, p.message ?? "");
         notify(s, "notifWaiting");
       } else {
@@ -1266,13 +1307,11 @@ listen<string>("agent-hook", (e) => {
         notify(s, "notifDone");
       }
       break;
+    }
     case "PreToolUse":
       // A tool actually starting means whatever gate was in front of it is
-      // cleared — with --dangerously-skip-permissions, Claude Code still
-      // fires the "Notification: needs permission" event (which sets
-      // waiting=true) but the matching approval never arrives since it's
-      // bypassed, so without this the state gets stuck on "waiting"
-      // forever even though the agent is actively working.
+      // cleared. Defensive: also clears `waiting` if it was somehow left set
+      // (e.g. a stale hook.claudeId match) so the state can't get stuck.
       endWait(s);
       s.hook.idle = false;
       s.hook.detail = toolDetail(p.tool_name ?? "", p.tool_input);
@@ -1460,7 +1499,9 @@ listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
   s.term.writeln(`\r\n\x1b[90m${t("sessionEnded")}\x1b[0m`);
   updateStatus();
   if (s.cmd) {
-    s.exitSeen = false;
+    // Watching the tab end counts as having seen it — don't queue a
+    // phantom "session ended" inbox row for the next overlay open.
+    s.exitSeen = s.id === activeId && overlayVisible && document.hasFocus();
     notify(s, "notifExit");
   }
   refreshCliButtons();
@@ -1470,6 +1511,11 @@ listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
     // "already up to date, nothing to do") — check whether the tool is
     // actually there now instead of trusting the raw exit code.
     const tool = wizBusy === 1 ? "node" : "claude";
+    // Reset busy only for the wizard's own session: an unrelated tab
+    // exiting mid-install must not re-enable the Install button (a second
+    // click would spawn a concurrent duplicate install). Refresh even when
+    // the modal is hidden so reopening it never shows a stale busy step.
+    wizBusy = 0;
     invoke<boolean[]>("detect_clis", { names: [tool] })
       .then(([found]) => {
         wizLogStatus.textContent = found ? t("wizInstallOk") : t("wizInstallFailed");
@@ -1479,9 +1525,6 @@ listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
         wizLogStatus.textContent = t("wizInstallFailed");
         wizLogStatus.className = "wiz-log-status fail";
       });
-  }
-  if (!wizardModal.classList.contains("hidden")) {
-    wizBusy = 0;
     wizardRefresh();
   }
 });
@@ -1489,11 +1532,16 @@ listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
 // winget in particular has known hangs inside non-standard PTYs (it can
 // sit forever after its last printed line instead of exiting) — bound how
 // long the wizard waits instead of leaving "Instalando…" stuck forever.
+// The bound is deliberately generous: npm/winget have perfectly normal
+// silent phases (dependency resolution, extraction) well over 5 s, and
+// killing a live install mid-flight is far worse than waiting a minute
+// to declare a hang.
+const WIZ_SILENCE_KILL_MS = 60_000;
 setInterval(() => {
   if (!wizActiveSessionId) return;
   const s = sessions.get(wizActiveSessionId);
   if (!s?.alive) return;
-  if (Date.now() - s.lastData > 5_000) {
+  if (Date.now() - s.lastData > WIZ_SILENCE_KILL_MS) {
     invoke("kill_pty", { id: wizActiveSessionId }).catch(() => {});
     wizLogStatus.textContent = t("wizInstallTimeout");
     wizLogStatus.className = "wiz-log-status fail";
@@ -1631,6 +1679,8 @@ function showAwaySummary(d: Totals, awayMs: number) {
     .replace("{waits}", String(d.waits))
     .replace("{waitMin}", String(Math.round(d.waitMs / 60000)));
   $("#away-text").textContent = text;
+  // The banner is shared with the update flow — don't leave its button up.
+  $("#away-action").classList.add("hidden");
   $("#away-banner").classList.remove("hidden");
   clearTimeout(awayBannerTimer);
   awayBannerTimer = window.setTimeout(
@@ -1676,12 +1726,40 @@ listen("dnd-toggle", () => {
   dndChanged();
 });
 
+// Update flow: the backend only *checks* on startup; downloading and
+// installing (which terminates the process on Windows to run the installer)
+// happens exclusively behind this button.
+const awayAction = $<HTMLButtonElement>("#away-action");
+
+listen<string>("update-available", (e) => {
+  $("#away-text").textContent = t("updateAvailable").replace("{v}", e.payload);
+  awayAction.textContent = t("updateInstallBtn");
+  awayAction.classList.remove("hidden");
+  $("#away-banner").classList.remove("hidden");
+});
+
+awayAction.addEventListener("click", async () => {
+  awayAction.disabled = true;
+  $("#away-text").textContent = t("updateInstalling");
+  try {
+    await invoke("install_update");
+    // Windows never reaches this line (the installer restarts us).
+    awayAction.classList.add("hidden");
+  } catch (err) {
+    $("#away-text").textContent = `${t("updateFailed")}: ${String(err).slice(0, 120)}`;
+    awayAction.textContent = t("updateInstallBtn");
+  } finally {
+    awayAction.disabled = false;
+  }
+});
+
 listen<string>("update-installed", (e) => {
+  awayAction.classList.add("hidden");
   $("#away-text").textContent = t("updateReady").replace("{v}", e.payload);
   $("#away-banner").classList.remove("hidden");
 });
 
-listen("overlay-shown", () => {
+function onOverlayShown() {
   overlayVisible = true;
   renderInbox();
   if (awayStart && Date.now() - awayStart > AWAY_MIN_MS) {
@@ -1701,12 +1779,21 @@ listen("overlay-shown", () => {
     safeFit(s.term, s.fit, s.pane);
     s.term.focus();
   }
-});
+}
+listen("overlay-shown", onOverlayShown);
 
-listen("overlay-hidden", () => {
+function onOverlayHidden() {
   overlayVisible = false;
   awayStart = Date.now();
   awayBase = totals();
+}
+listen("overlay-hidden", onOverlayHidden);
+
+// The "−" button minimizes via the OS (no Rust event fires), and restoring
+// from the taskbar likewise bypasses show_overlay — without these the HUD
+// pill and the away summary silently never engage around a minimize.
+window.addEventListener("focus", () => {
+  if (!overlayVisible) onOverlayShown();
 });
 
 // ── Search in scrollback (Ctrl+F) ─────────────────────────
@@ -2069,6 +2156,9 @@ const wizLogStatus = $("#wiz-log-status");
 let wizActiveSessionId: string | null = null;
 
 function openWizard() {
+  // No live install session ⇒ nothing can legitimately be busy; clears a
+  // stale flag if the modal was closed mid-install in an earlier state.
+  if (!wizActiveSessionId) wizBusy = 0;
   wizardModal.classList.remove("hidden");
   wizardRefresh();
 }
@@ -2184,6 +2274,7 @@ function wireTabRename(titleEl: HTMLElement, session: Session) {
       next.textContent = session.title;
       input.replaceWith(next);
       wireTabRename(next, session);
+      updateStatus();
     };
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") commit(true);
@@ -2235,7 +2326,10 @@ $("#btn-ghost").addEventListener("click", () =>
 // which drops the taskbar entry entirely (unlike a true minimize, which
 // keeps it, just iconified). The "−" icon promises a minimize; it should
 // behave like one in both modes, and the taskbar icon should never vanish.
-$("#btn-hide").addEventListener("click", () => getCurrentWindow().minimize().catch(() => {}));
+$("#btn-hide").addEventListener("click", () => {
+  getCurrentWindow().minimize().catch(() => {});
+  onOverlayHidden();
+});
 // × always hides to the tray (Discord-style), in both modes — it's the one
 // guaranteed way back via Alt+X/tray if minimize ever gets the window into
 // a stuck state. Quitting is in the tray menu either way.
@@ -2413,19 +2507,41 @@ const FILE_LINK_RE = new RegExp(
 // WebLinksAddon rejects any match that doesn't round-trip through `new
 // URL()`, which throws for a plain file path — it's built strictly for
 // http(s) links even when given a custom regex. A hand-rolled link
-// provider skips that filter. ASCII-only path chars, so index == column.
+// provider skips that filter.
 function fileLinkProvider(term: Terminal, cwd: string | null) {
   return {
     provideLinks(y: number, cb: (links: import("@xterm/xterm").ILink[] | undefined) => void) {
-      const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
+      const line = term.buffer.active.getLine(y - 1);
+      const text = line?.translateToString(true) ?? "";
       const re = new RegExp(FILE_LINK_RE.source, "gi");
       const links: import("@xterm/xterm").ILink[] = [];
+      // translateToString emits ONE string char per wide (emoji/CJK) char
+      // while it occupies TWO buffer cells — so on lines with wide chars
+      // before the path (agent TUIs love emoji bullets) a raw string index
+      // lands one cell short per wide char. Map index → column explicitly.
+      const colOf: number[] = [];
+      if (line) {
+        let strIdx = 0;
+        for (let i = 0; i < line.length; i++) {
+          const cell = line.getCell(i);
+          if (!cell || cell.getWidth() === 0) continue; // wide-char spacer cell
+          const chars = cell.getChars() || " ";
+          for (let k = 0; k < chars.length; k++) colOf[strIdx++] = i;
+        }
+        colOf[strIdx] = line.length; // one-past-end sentinel
+      }
       let m: RegExpExecArray | null;
       while ((m = re.exec(text))) {
         const full = m[0];
         const start = m.index;
+        // Not a file link if it's the tail of a URL in the same token
+        // (https://foo.com/guide.md would otherwise match from "oo.com/…").
+        const tokenStart = text.lastIndexOf(" ", start) + 1;
+        if (text.slice(tokenStart, start).includes("://")) continue;
+        const startCol = colOf[start] ?? start;
+        const endCol = colOf[start + full.length] ?? start + full.length;
         links.push({
-          range: { start: { x: start + 1, y }, end: { x: start + 1 + full.length, y } },
+          range: { start: { x: startCol + 1, y }, end: { x: endCol + 1, y } },
           text: full,
           activate: () => openFilePreview(full, cwd),
         });

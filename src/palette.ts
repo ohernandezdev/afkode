@@ -39,7 +39,8 @@ interface Suggestion {
 let cwd: string | null = null;
 let history: string[] = [];
 try {
-  history = JSON.parse(localStorage.getItem("prompt-history") ?? "[]");
+  const v = JSON.parse(localStorage.getItem("prompt-history") ?? "[]");
+  history = Array.isArray(v) ? v : [];
 } catch {
   history = [];
 }
@@ -88,7 +89,12 @@ function renderSugs() {
   resize();
 }
 
+// Sequence guard: a slow list_dir reply from an earlier keystroke must not
+// overwrite the suggestions computed for the current input.
+let sugSeq = 0;
+
 async function updateSugs() {
+  const seq = ++sugSeq;
   const v = input.value;
   const out: Suggestion[] = [];
 
@@ -131,6 +137,7 @@ async function updateSugs() {
     }
   }
 
+  if (seq !== sugSeq) return;
   sugs = out.slice(0, 8);
   sel = sugs.length ? 0 : -1;
   renderSugs();
