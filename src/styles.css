@@ -350,42 +350,6 @@ body {
   gap: 3px;
 }
 
-/* ── Add-tab dropdown ──────────────────────────────────── */
-
-.tab-add-wrap {
-  position: relative;
-}
-
-.add-menu {
-  position: absolute;
-  top: 33px;
-  left: 0;
-  z-index: 50;
-  min-width: 160px;
-  padding: 4px;
-  background: rgb(33, 36, 46);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
-}
-.add-menu button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  font-size: 12.5px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.add-menu button:hover {
-  background: rgba(255, 255, 255, 0.07);
-}
 .mi {
   width: 7px;
   height: 7px;
@@ -430,48 +394,6 @@ body {
   background: transparent !important;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-}
-
-/* ── Command blocks (Warp-style) ────────────────────────── */
-
-/* The decoration spans the full row width so text selection/clicks under
-   it must pass through; :hover can't be detected on a pointer-events:none
-   element, so the toolbar stays dimly visible rather than hidden-until-
-   row-hover, and only the toolbar itself (pointer-events: auto) is
-   interactive. */
-.block-marker {
-  border-left: 3px solid rgba(217, 119, 87, 0.5);
-  pointer-events: none;
-}
-.block-actions {
-  position: absolute;
-  right: 4px;
-  top: 0;
-  display: flex;
-  gap: 3px;
-  opacity: 0.3;
-  transition: opacity 0.12s;
-  pointer-events: auto;
-}
-.block-actions:hover {
-  opacity: 1;
-}
-.block-act {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 4px;
-  background: rgba(20, 22, 28, 0.92);
-  color: var(--text-dim);
-  font-size: 10px;
-  line-height: 1;
-  cursor: pointer;
-}
-.block-act:hover {
-  color: #fff;
-  background: var(--accent);
 }
 
 /* ── Search bar ────────────────────────────────────────── */
@@ -754,12 +676,20 @@ body {
 .empty-state {
   position: absolute;
   inset: 0;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16px;
   padding: 20px;
+  background: rgba(var(--panel-rgb), 0.98);
+}
+
+.empty-state-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
 }
 
 .brand-dot.big {
@@ -904,6 +834,38 @@ body {
   pointer-events: none;
 }
 
+.wiz-log-wrap {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+.wiz-log-status {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.wiz-log-status.running {
+  color: var(--text-dim);
+}
+.wiz-log-status.ok {
+  color: #67c987;
+}
+.wiz-log-status.fail {
+  color: #e06c75;
+}
+.wiz-log {
+  max-height: 160px;
+  overflow-y: auto;
+  margin: 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .launchers {
   display: flex;
   flex-wrap: wrap;
@@ -1033,6 +995,30 @@ button.missing::after {
 .git-chip.removed {
   color: #e06c75;
 }
+.mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mode-badge:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text);
+}
+.mode-badge.mode-active {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+
 .git-chip.dirty {
   padding: 0 4px;
   color: #e5c07b;

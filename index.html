@@ -19,15 +19,7 @@
         <nav class="tabs" id="tabs"></nav>
         <div class="tab-color-menu hidden" id="tab-color-menu"></div>
 
-        <div class="tab-add-wrap">
-          <button class="btn btn-add" id="btn-new-tab" data-i18n-title="tooltipNew">+</button>
-          <div class="add-menu hidden" id="add-menu">
-            <button data-cmd="claude" data-name="Claude Code"><span class="mi dot-claude"></span>Claude Code</button>
-            <button data-cmd="opencode" data-name="OpenCode"><span class="mi dot-oc"></span>OpenCode</button>
-            <button data-cmd="codex" data-name="Codex"><span class="mi dot-cx"></span>Codex</button>
-            <button data-cmd="" data-name="PowerShell"><span class="mi dot-ps"></span>PowerShell</button>
-          </div>
-        </div>
+        <button class="btn btn-add" id="btn-new-tab" data-i18n-title="tooltipNew">+</button>
 
         <button class="header-search" id="btn-global-search" data-i18n-title="tooltipGlobalSearch">
           <svg viewBox="0 0 24 24" width="12" height="12" opacity="0.7"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"/></svg>
@@ -49,7 +41,7 @@
           <button class="btn" id="btn-hide" data-i18n-title="tooltipHide">
             <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M5 11h14v2H5z"/></svg>
           </button>
-          <button class="btn hidden" id="btn-maximize" data-i18n-title="tooltipMaximize">
+          <button class="btn" id="btn-maximize" data-i18n-title="tooltipMaximize">
             <svg viewBox="0 0 24 24" width="12" height="12"><path fill="none" stroke="currentColor" stroke-width="2" d="M5 5h14v14H5z"/></svg>
           </button>
           <button class="btn btn-close" id="btn-close" data-i18n-title="tooltipClose">
@@ -62,14 +54,14 @@
         <div class="search-bar hidden" id="search-bar">
           <svg viewBox="0 0 24 24" width="13" height="13" opacity="0.6"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2Zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12Z"/></svg>
           <input id="search-input" autocomplete="off" spellcheck="false" />
-          <button class="btn" id="search-close">
+          <button class="btn" id="search-close" data-i18n-title="close">
             <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
           </button>
         </div>
         <div class="inbox hidden" id="inbox">
           <div class="inbox-head">
             <h3 id="inbox-title"></h3>
-            <button class="btn" id="inbox-close">
+            <button class="btn" id="inbox-close" data-i18n-title="close">
               <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
             </button>
           </div>
@@ -77,11 +69,14 @@
         </div>
         <div class="away-banner hidden" id="away-banner">
           <span id="away-text"></span>
-          <button class="btn" id="away-close" title="×">
+          <button class="btn" id="away-close" data-i18n-title="close">
             <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
           </button>
         </div>
         <div class="empty-state hidden" id="empty-state">
+          <button class="btn empty-state-close hidden" id="empty-state-close" data-i18n-title="close">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+          </button>
           <div class="empty-logo"><span class="brand-dot big"></span></div>
           <h2 id="empty-title"></h2>
           <button class="pick-folder" id="btn-pick-folder">
@@ -105,7 +100,7 @@
         <div class="file-preview-panel" id="file-preview-modal">
           <div class="file-preview-head">
             <span class="file-preview-title" id="file-preview-title"></span>
-            <button class="btn" id="file-preview-close">
+            <button class="btn" id="file-preview-close" data-i18n-title="close">
               <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
             </button>
           </div>
@@ -124,6 +119,7 @@
           <span class="git-chip removed hidden" id="git-removed-chip"></span>
           <span class="git-chip dirty hidden" id="git-dirty-chip" title="●"></span>
         </span>
+        <button class="mode-badge" id="mode-badge" data-i18n-title="tooltipModeBadge"></button>
         <span class="status-right" id="status-hint"></span>
       </footer>
 
@@ -140,7 +136,7 @@
         <div class="help-card">
           <div class="help-head">
             <h2 id="help-title"></h2>
-            <button class="btn" id="btn-help-close">
+            <button class="btn" id="btn-help-close" data-i18n-title="close">
               <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
             </button>
           </div>
@@ -154,7 +150,7 @@
         <div class="help-card settings-card">
           <div class="help-head">
             <h2 data-i18n="wizTitle"></h2>
-            <button class="btn" id="wiz-close">
+            <button class="btn" id="wiz-close" data-i18n-title="close">
               <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
             </button>
           </div>
@@ -174,6 +170,10 @@
             <div class="wiz-info"><b data-i18n="wizStep3"></b><span class="wiz-note" data-i18n="wizStep3Note"></span></div>
             <button class="inbox-btn ok" id="wiz-btn-3" data-i18n="wizLaunch"></button>
           </div>
+          <div class="wiz-log-wrap hidden" id="wiz-log-wrap">
+            <div class="wiz-log-status" id="wiz-log-status"></div>
+            <pre class="wiz-log" id="wiz-log"></pre>
+          </div>
         </div>
       </div>
 
@@ -181,7 +181,7 @@
         <div class="help-card settings-card">
           <div class="help-head">
             <h2 data-i18n="settingsTitle"></h2>
-            <button class="btn" id="btn-settings-close">
+            <button class="btn" id="btn-settings-close" data-i18n-title="close">
               <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
             </button>
           </div>

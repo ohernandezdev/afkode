@@ -16,7 +16,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
-import { Terminal, type ITheme, type IMarker } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -263,9 +263,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     tooltipHide: "Ocultar overlay (Alt+X)",
     tooltipMaximize: "Maximizar / restaurar",
     tooltipClose: "Ocultar a la bandeja (salir: menú del icono de la bandeja)",
+    close: "Cerrar",
     tooltipOpacity: "Opacidad del fondo",
-    statusHint:
-      "<kbd>Alt</kbd>+<kbd>X</kbd> overlay&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>G</kbd> fantasma&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>P</kbd> prompt&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>A</kbd> aprobar",
+    hintAltXOverlay: "overlay",
+    hintAltXWindow: "mostrar/ocultar",
+    hintGhost: "fantasma",
+    hintPrompt: "prompt",
+    hintApprove: "aprobar",
+    modeOverlay: "Overlay",
+    modeWindow: "Ventana",
+    tooltipModeBadge: "Click para cambiar entre modo overlay y ventana",
     ghostBadge: "👻 MODO FANTASMA — Alt+G para desactivar",
     helpTitle: "¿Por qué usar AFKode?",
     help1:
@@ -305,6 +312,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     wizInstall: "Instalar",
     wizLaunch: "Abrir Claude Code",
     wizInstalling: "Instalando",
+    wizInstallRunning: "Instalando… (el log de abajo se actualiza en vivo)",
+    wizInstallOk: "✓ Instalado correctamente",
+    wizInstallFailed: "✗ Falló la instalación — revisa el detalle arriba",
+    wizInstallTimeout: "✗ Se colgó sin responder — puedes reintentar o instalarlo manualmente",
     argsPlaceholder: "Flags extra para Claude Code (se aplican al lanzar)…",
     starting: "Iniciando",
     notifications: "Notificaciones",
@@ -335,6 +346,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchPlaceholder: "Buscar sesiones…",
     globalSearchEmpty: "Sin resultados",
     linkOpening: "Abriendo enlace en tu navegador…",
+    linkOpenFailed: "No pude abrir el navegador — copié el enlace, pégalo donde quieras",
+    pastedImageInstead: "Tu clipboard no tenía texto, así que pegué una imagen en su lugar",
     filePreviewError: "No se pudo abrir el archivo",
     filePreviewNotFoundBare:
       "No encontré este archivo en la carpeta de la sesión. Claude probablemente lo mencionó sin indicar su ruta completa.",
@@ -362,9 +375,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     tooltipHide: "Hide overlay (Alt+X)",
     tooltipMaximize: "Maximize / restore",
     tooltipClose: "Hide to tray (quit via the tray icon menu)",
+    close: "Close",
     tooltipOpacity: "Background opacity",
-    statusHint:
-      "<kbd>Alt</kbd>+<kbd>X</kbd> overlay&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>G</kbd> ghost&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>P</kbd> prompt&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>A</kbd> approve",
+    hintAltXOverlay: "overlay",
+    hintAltXWindow: "show/hide",
+    hintGhost: "ghost",
+    hintPrompt: "prompt",
+    hintApprove: "approve",
+    modeOverlay: "Overlay",
+    modeWindow: "Window",
+    tooltipModeBadge: "Click to switch between overlay and window mode",
     ghostBadge: "👻 GHOST MODE — Alt+G to disable",
     helpTitle: "Why use AFKode?",
     help1:
@@ -404,6 +424,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     wizInstall: "Install",
     wizLaunch: "Open Claude Code",
     wizInstalling: "Installing",
+    wizInstallRunning: "Installing… (the log below updates live)",
+    wizInstallOk: "✓ Installed successfully",
+    wizInstallFailed: "✗ Install failed — check the log above",
+    wizInstallTimeout: "✗ It hung with no response — you can retry or install it manually",
     argsPlaceholder: "Extra flags for Claude Code (applied on launch)…",
     starting: "Starting",
     notifications: "Notifications",
@@ -434,6 +458,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchPlaceholder: "Search sessions…",
     globalSearchEmpty: "No results",
     linkOpening: "Opening link in your browser…",
+    linkOpenFailed: "Couldn't open your browser — copied the link, paste it anywhere",
+    pastedImageInstead: "Your clipboard had no text, so an image got pasted instead",
     filePreviewError: "Couldn't open the file",
     filePreviewNotFoundBare:
       "Couldn't find this file in the session's folder. Claude likely mentioned it without its full path.",
@@ -476,7 +502,7 @@ const DEFAULTS: Settings = {
   theme: "warp-dark",
   font: availableFonts[0],
   size: 13,
-  lang: navigator.language.toLowerCase().startsWith("es") ? "es" : "en",
+  lang: "en",
   notify: true,
   sound: true,
   hud: true,
@@ -557,7 +583,6 @@ const $ = <T extends HTMLElement>(sel: string) =>
 
 const tabsEl = $("#tabs");
 const terminalsEl = $("#terminals");
-const addMenu = $("#add-menu");
 const statusEl = $("#status-session");
 const overlayEl = $("#overlay");
 const ghostBadge = $("#ghost-badge");
@@ -566,9 +591,15 @@ const ghostBtn = $("#btn-ghost");
 const emptyState = $("#empty-state");
 const pickedFolderLabel = $("#picked-folder-label");
 let pickedFolder: string | null = localStorage.getItem("last-folder");
+// "+" shows the same rich empty-state (folder picker + launchers) instead
+// of a plain dropdown, even when tabs already exist — this tracks that
+// forced-open case so it can be dismissed without starting a session.
+let forceEmptyState = false;
 
 function updateEmptyState() {
-  emptyState.classList.toggle("hidden", sessions.size > 0);
+  const show = sessions.size === 0 || forceEmptyState;
+  emptyState.classList.toggle("hidden", !show);
+  $("#empty-state-close").classList.toggle("hidden", sessions.size === 0);
 }
 
 function updatePickedFolderLabel() {
@@ -672,62 +703,62 @@ function closeSession(id: string) {
 // line-heights round per-row instead of per-terminal; over many rows that
 // drift can push the last line past the pane's bottom edge. FitAddon can't
 // see that at measurement time, so shrink by a row until it actually fits.
+// A single correction only covers small drift (a window resize); a bigger
+// jump (e.g. a large font-size change) can overflow by more than one row,
+// so this actually loops rather than checking just once — each
+// getBoundingClientRect() forces layout to reflect the resize that just
+// happened, so the next check in the same loop sees accurate geometry.
 function safeFit(term: Terminal, fit: FitAddon, pane: HTMLElement) {
   fit.fit();
   requestAnimationFrame(() => {
     const screen = pane.querySelector<HTMLElement>(".xterm-screen");
     if (!screen) return;
-    if (screen.getBoundingClientRect().bottom > pane.getBoundingClientRect().bottom + 0.5 && term.rows > 1) {
+    // Capped well above any plausible overflow — guards against looping
+    // forever if geometry ever fails to converge for an unexpected reason.
+    for (let guard = 0; guard < 50; guard++) {
+      if (screen.getBoundingClientRect().bottom <= pane.getBoundingClientRect().bottom + 0.5 || term.rows <= 1) {
+        break;
+      }
       term.resize(term.cols, term.rows - 1);
     }
   });
 }
 
-// Warp-style blocks: the injected PowerShell prompt (see PS_PROMPT_PRELUDE
-// in the Rust side) wraps itself in OSC 133 markers. "A" fires right before
-// the prompt text is drawn, "D;<exit>" right before the *next* prompt is
-// drawn — so a block's full extent (prompt+command through all its output)
-// is only known once the following "D" arrives. Reading the marker row's
-// rendered text (not raw keystrokes) means arrow-key edits, paste, and
-// history recall are all reflected correctly for free.
-function wireCommandBlocks(term: Terminal, sessionId: string) {
-  let prevMarker: IMarker | null = null;
-
-  const finalizeBlock = (marker: IMarker) => {
-    const line = term.buffer.active.getLine(marker.line);
-    const raw = line?.translateToString(true) ?? "";
-    const cmdText = raw.replace(/^PS .*?>\s?/, "").trim();
-    if (!cmdText) return; // empty prompt (just pressed Enter) — nothing to mark
-    const deco = term.registerDecoration({ marker, width: term.cols });
-    if (!deco) return; // undefined while the alt buffer is active
-    deco.onRender((el) => {
-      el.classList.add("block-marker");
-      if (el.querySelector(".block-actions")) return; // onRender fires again on resize/scroll
-      const bar = document.createElement("div");
-      bar.className = "block-actions";
-      bar.innerHTML =
-        '<button class="block-act" data-act="copy" title="Copy command">⧉</button>' +
-        '<button class="block-act" data-act="rerun" title="Rerun">↻</button>';
-      bar.addEventListener("mousedown", (ev) => ev.stopPropagation());
-      bar.addEventListener("click", (ev) => {
-        const act = (ev.target as HTMLElement).closest<HTMLElement>(".block-act")?.dataset.act;
-        if (act === "copy") clipWrite(cmdText).catch(() => {});
-        else if (act === "rerun") invoke("write_pty", { id: sessionId, data: `${cmdText}\r` }).catch(() => {});
-      });
-      el.appendChild(bar);
-    });
-  };
-
-  term.parser.registerOscHandler(133, (data) => {
-    const kind = data.split(";")[0];
-    if (kind === "D" && prevMarker) {
-      finalizeBlock(prevMarker);
-      prevMarker = null;
-    } else if (kind === "A") {
-      prevMarker = term.registerMarker(0);
+// Shared by both link paths: plain http(s) text matched by WebLinksAddon,
+// and xterm's own built-in OSC 8 hyperlink handler (Terminal's linkHandler
+// option below) — CLIs increasingly print clickable links via OSC 8 rather
+// than plain text, and without linkHandler set, xterm's internal default
+// activation calls window.open()/location.href, which doesn't reach the
+// system browser the way Tauri's opener plugin does inside a WebView.
+function openLinkUri(uri: string) {
+  // The in-window toast is invisible if some other fullscreen app (not
+  // a game — those already get the DND treatment) is covering the
+  // overlay, which is exactly when someone can't tell whether the link
+  // actually opened. A native OS toast punches through that.
+  const notifyNative = (body: string) => {
+    if (settings.notify && !(overlayVisible && document.hasFocus()) && notifPermission) {
+      try {
+        sendNotification({ title: "AFKode", body });
+      } catch {
+        /* notifications unavailable */
+      }
     }
-    return true;
-  });
+  };
+  openUrl(uri)
+    .then(() => {
+      const msg = `${t("linkOpening")} ${uri}`;
+      showLinkToast(msg);
+      notifyNative(msg);
+    })
+    .catch(() => {
+      // Swallowing this before just meant a failed open looked identical
+      // to a working one — no default browser, a broken ShellExecute,
+      // whatever. Fall back to the clipboard so the user still has
+      // something to act on instead of a dead end.
+      clipWrite(uri).catch(() => {});
+      showLinkToast(t("linkOpenFailed"));
+      notifyNative(t("linkOpenFailed"));
+    });
 }
 
 async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
@@ -779,26 +810,19 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     // Memory: 2k lines is plenty for supervision; agents redraw their TUI.
     scrollback: 2000,
     theme: themeDef.term,
+    // Off by default in xterm.js; without it, a screen reader has no way
+    // to read terminal output at all.
+    screenReaderMode: true,
+    // Without this, xterm's own built-in OSC 8 hyperlink handler (separate
+    // from WebLinksAddon below, which only matches plain-text URLs) falls
+    // back to window.open()/location.href on click — see openLinkUri.
+    linkHandler: {
+      activate: (_event, uri) => openLinkUri(uri),
+    },
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.loadAddon(
-    new WebLinksAddon((_event, uri) => {
-      openUrl(uri).catch(() => {});
-      showLinkToast(`${t("linkOpening")} ${uri}`);
-      // The in-window toast is invisible if some other fullscreen app (not
-      // a game — those already get the DND treatment) is covering the
-      // overlay, which is exactly when someone can't tell whether the link
-      // actually opened. A native OS toast punches through that.
-      if (settings.notify && !(overlayVisible && document.hasFocus()) && notifPermission) {
-        try {
-          sendNotification({ title: "AFKode", body: `${t("linkOpening")} ${uri}` });
-        } catch {
-          /* notifications unavailable */
-        }
-      }
-    }),
-  );
+  term.loadAddon(new WebLinksAddon((_event, uri) => openLinkUri(uri)));
   term.registerLinkProvider(fileLinkProvider(term, cwd));
   const search = new SearchAddon();
   try {
@@ -823,11 +847,6 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   // output early.
   await document.fonts.ready;
   safeFit(term, fit, pane);
-
-  // Warp-style blocks: only for plain shell sessions. Agent TUIs (Claude
-  // Code etc.) render in the alt-screen buffer, where registerDecoration
-  // is a documented no-op, so this never applies to them even by mistake.
-  if (!cmd) wireCommandBlocks(term, id);
 
   // Loading animation until the CLI paints its first output (Claude Code's
   // initial spin-up leaves the pane black for several seconds).
@@ -855,7 +874,12 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     try {
       const txt = await clipRead();
       if (txt) {
-        term.paste(txt);
+        // Trailing-only trim: copying a one-line code/token from a browser
+        // often drags along a trailing newline, which pastes as an early
+        // Enter mid-paste — corrupting exactly a login code, not just
+        // submitting early. Leading whitespace is left alone since it can
+        // be meaningful (pasted, indented code).
+        term.paste(txt.replace(/\s+$/, ""));
         return;
       }
     } catch {
@@ -863,7 +887,14 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     }
     try {
       const path = await invoke<string>("clipboard_image_to_temp");
-      if (path) invoke("write_pty", { id, data: `"${path}"` }).catch(() => {});
+      if (path) {
+        // No text on the clipboard, only image data (e.g. a screenshot
+        // tool was used instead of copying text) — falling back to
+        // pasting its temp path silently looks like AFKode just broke
+        // when someone actually wanted to paste a URL/token.
+        showLinkToast(t("pastedImageInstead"));
+        invoke("write_pty", { id, data: `"${path}"` }).catch(() => {});
+      }
     } catch {
       /* nothing usable in the clipboard */
     }
@@ -874,6 +905,16 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyF") {
       ev.preventDefault();
       openSearch();
+      return false;
+    }
+    // xterm.js sends plain CR for Enter regardless of Shift — it has no
+    // built-in way to distinguish "insert a newline" from "submit". Send
+    // the same ESC+CR sequence xterm already emits for Alt+Enter, which is
+    // the convention readline/Ink-based CLIs (including Claude Code) treat
+    // as a literal newline instead of submitting.
+    if (ev.shiftKey && (ev.code === "Enter" || ev.code === "NumpadEnter")) {
+      ev.preventDefault();
+      invoke("write_pty", { id, data: "\x1b\r" }).catch(() => {});
       return false;
     }
     // Plain Ctrl+V would send ^V to the TUI instead of pasting — intercept.
@@ -890,7 +931,26 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
       if (sel) clipWrite(sel).catch(() => {});
       return false;
     }
+    // Without this, xterm sends the literal ^K (0x0B) byte to the shell —
+    // in readline/PSReadLine that's "kill to end of line," silently
+    // deleting whatever was typed, in addition to opening search.
+    if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyK") {
+      ev.preventDefault();
+      openGlobalSearch();
+      return false;
+    }
     return true;
+  });
+  // A selection left over from an earlier drag (auto-copied on change, but
+  // never cleared) would make a *later*, unrelated right-click copy again
+  // instead of paste — clearing on every new left click/drag start means a
+  // stale selection can never survive past the next normal interaction.
+  // detail === 1 excludes the 2nd/3rd click of a double/triple-click:
+  // xterm's own mousedown handler (registered earlier, in term.open())
+  // runs first and does word/line select on those — clearing unconditionally
+  // here would wipe out the selection it just made.
+  pane.addEventListener("mousedown", (ev) => {
+    if (ev.button === 0 && ev.detail === 1) term.clearSelection();
   });
   pane.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
@@ -926,6 +986,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   };
   sessions.set(id, session);
   wireTabRename(tabTitleEl, session);
+  forceEmptyState = false;
   updateEmptyState();
   setActive(id);
 
@@ -949,6 +1010,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     session.alive = false;
     tab.classList.add("dead");
   }
+  return id;
 }
 
 // ── Agent-aware notifications ─────────────────────────────
@@ -1016,8 +1078,18 @@ setInterval(() => {
 const ANSI_RE = /\x1b(\[[0-9;?]*[a-zA-Z]|\][^\x07]*(\x07|\x1b\\)|[()][0-9A-B])/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 
+// "permission" and bare "tell claude what to do" used to be in here, but
+// both are always on screen in Claude Code's normal idle UI — the footer
+// permanently shows "bypass permissions on", and the empty-prompt
+// placeholder literally reads "Try 'tell Claude what to do'" — so this
+// matched constantly regardless of actual state whenever hooks aren't
+// flowing and this text fallback is what's driving the waiting/done
+// heuristic. "differently" narrows the phrase to the real decline option
+// on the permission prompt ("No, and tell Claude what to do differently"),
+// and dropping bare "allow"/"permission" removes two words that show up in
+// completely ordinary conversation about permissions/security.
 const WAITING_RE =
-  /(\(y\/n\)|do you want|don't ask again|tell claude what to do|allow|permission|press enter|continuar|\x07)/i;
+  /(\(y\/n\)|do you want|don't ask again|tell claude what to do differently|press enter|continuar|\x07)/i;
 const SILENCE_WAITING_MS = 12_000;
 const SILENCE_DONE_MS = 45_000;
 
@@ -1159,6 +1231,16 @@ listen<string>("agent-hook", (e) => {
     message?: string;
     tool_name?: string;
     tool_input?: Record<string, unknown>;
+    // Not part of Claude Code's own payload — the Rust side recovers this
+    // from the registration-time matcher (permission_prompt/idle_prompt,
+    // a documented, stable enum: https://code.claude.com/docs/en/hooks)
+    // and injects it, since the matcher itself never travels in the JSON.
+    afkode_notif_type?: "permission_prompt" | "idle_prompt";
+    // Documented common field, not sent on every event. "bypassPermissions"
+    // is the one unambiguous value here — it means nothing is ever actually
+    // pending a human decision, so a permission_prompt notification under it
+    // can't really be "waiting on you" no matter what it looks like.
+    permission_mode?: string;
   };
   try {
     p = JSON.parse(e.payload);
@@ -1170,10 +1252,12 @@ listen<string>("agent-hook", (e) => {
   s.hook.seen = true;
   switch (p.hook_event_name) {
     case "Notification":
-      // Claude Code fires this both for a real permission prompt and for a
-      // generic "still idle" nudge after ~60s of silence with nothing
-      // actually blocking. Only the former is truly waiting on you.
-      if (/permission/i.test(p.message ?? "")) {
+      // Two distinct registrations (see write_hooks_settings) — a real
+      // permission prompt vs. a generic "still idle" nudge after ~60s of
+      // silence with nothing actually blocking. Only the former is truly
+      // waiting on you — and only if permissions aren't bypassed, in which
+      // case nothing is really pending a decision even if this still fires.
+      if (p.afkode_notif_type === "permission_prompt" && p.permission_mode !== "bypassPermissions") {
         startWait(s, p.message ?? "");
         notify(s, "notifWaiting");
       } else {
@@ -1183,6 +1267,13 @@ listen<string>("agent-hook", (e) => {
       }
       break;
     case "PreToolUse":
+      // A tool actually starting means whatever gate was in front of it is
+      // cleared — with --dangerously-skip-permissions, Claude Code still
+      // fires the "Notification: needs permission" event (which sets
+      // waiting=true) but the matching approval never arrives since it's
+      // bypassed, so without this the state gets stuck on "waiting"
+      // forever even though the agent is actively working.
+      endWait(s);
       s.hook.idle = false;
       s.hook.detail = toolDetail(p.tool_name ?? "", p.tool_input);
       break;
@@ -1354,9 +1445,13 @@ listen<{ id: string; data: string }>("pty-output", (e) => {
   s.tail = (s.tail + e.payload.data).slice(-4000);
   s.notifiedWaiting = false;
   s.notifiedDone = false;
+  if (e.payload.id === wizActiveSessionId) {
+    wizLogEl.textContent = stripAnsi(s.tail);
+    wizLogEl.scrollTop = wizLogEl.scrollHeight;
+  }
 });
 
-listen<{ id: string }>("pty-exit", (e) => {
+listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
   const s = sessions.get(e.payload.id);
   if (!s) return;
   dismissLoader(s);
@@ -1369,11 +1464,42 @@ listen<{ id: string }>("pty-exit", (e) => {
     notify(s, "notifExit");
   }
   refreshCliButtons();
+  if (e.payload.id === wizActiveSessionId) {
+    wizActiveSessionId = null;
+    // winget/npm exit codes are noisy (e.g. winget can exit non-zero for
+    // "already up to date, nothing to do") — check whether the tool is
+    // actually there now instead of trusting the raw exit code.
+    const tool = wizBusy === 1 ? "node" : "claude";
+    invoke<boolean[]>("detect_clis", { names: [tool] })
+      .then(([found]) => {
+        wizLogStatus.textContent = found ? t("wizInstallOk") : t("wizInstallFailed");
+        wizLogStatus.className = `wiz-log-status ${found ? "ok" : "fail"}`;
+      })
+      .catch(() => {
+        wizLogStatus.textContent = t("wizInstallFailed");
+        wizLogStatus.className = "wiz-log-status fail";
+      });
+  }
   if (!wizardModal.classList.contains("hidden")) {
     wizBusy = 0;
     wizardRefresh();
   }
 });
+
+// winget in particular has known hangs inside non-standard PTYs (it can
+// sit forever after its last printed line instead of exiting) — bound how
+// long the wizard waits instead of leaving "Instalando…" stuck forever.
+setInterval(() => {
+  if (!wizActiveSessionId) return;
+  const s = sessions.get(wizActiveSessionId);
+  if (!s?.alive) return;
+  if (Date.now() - s.lastData > 5_000) {
+    invoke("kill_pty", { id: wizActiveSessionId }).catch(() => {});
+    wizLogStatus.textContent = t("wizInstallTimeout");
+    wizLogStatus.className = "wiz-log-status fail";
+    wizActiveSessionId = null;
+  }
+}, 1000);
 
 listen<boolean>("ghost-mode", (e) => {
   const on = e.payload;
@@ -1680,15 +1806,32 @@ function applyFont() {
   }
 }
 
+function updateStatusHint() {
+  const altX = settings.overlayMode ? t("hintAltXOverlay") : t("hintAltXWindow");
+  // Click-through only makes sense floating over a game — drop it entirely
+  // in window mode instead of hinting at a feature that's hidden anyway.
+  const ghost = settings.overlayMode
+    ? `<kbd>Alt</kbd>+<kbd>G</kbd> ${t("hintGhost")}&ensp;·&ensp;`
+    : "";
+  $("#status-hint").innerHTML =
+    `<kbd>Alt</kbd>+<kbd>X</kbd> ${altX}&ensp;·&ensp;${ghost}` +
+    `<kbd>Alt</kbd>+<kbd>P</kbd> ${t("hintPrompt")}&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>A</kbd> ${t("hintApprove")}`;
+}
+
 function applyI18n() {
   document.documentElement.lang = settings.lang;
   document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
     el.textContent = t(el.dataset.i18n!);
   });
   document.querySelectorAll<HTMLElement>("[data-i18n-title]").forEach((el) => {
-    el.title = t(el.dataset.i18nTitle!);
+    const label = t(el.dataset.i18nTitle!);
+    el.title = label;
+    // Most of these are icon-only buttons (no visible text) — title alone
+    // isn't reliably exposed to screen readers, aria-label is. Kept in
+    // sync here too so a language switch updates both together.
+    el.setAttribute("aria-label", label);
   });
-  $("#status-hint").innerHTML = t("statusHint");
+  updateStatusHint();
   ghostBadge.textContent = t("ghostBadge");
   $("#help-title").textContent = t("helpTitle");
   $("#help-list").innerHTML = [1, 2, 3, 4, 5, 6]
@@ -1813,12 +1956,15 @@ wireSwitch("#chk-matchmode", "matchMode");
 const chkOverlayMode = $<HTMLInputElement>("#chk-overlaymode");
 chkOverlayMode.checked = settings.overlayMode;
 invoke("set_window_mode", { overlay: settings.overlayMode }).catch(() => {});
-chkOverlayMode.addEventListener("change", () => {
-  settings.overlayMode = chkOverlayMode.checked;
+
+function setOverlayMode(overlay: boolean) {
+  settings.overlayMode = overlay;
   saveSettings();
-  invoke("set_window_mode", { overlay: settings.overlayMode }).catch(() => {});
-  applyWindowModeUI(settings.overlayMode);
-});
+  chkOverlayMode.checked = overlay;
+  invoke("set_window_mode", { overlay }).catch(() => {});
+  applyWindowModeUI(overlay);
+}
+chkOverlayMode.addEventListener("change", () => setOverlayMode(chkOverlayMode.checked));
 
 const chkTts = $<HTMLInputElement>("#chk-tts");
 chkTts.checked = settings.tts;
@@ -1909,11 +2055,18 @@ function launchCli(cmd: string, name: string, cwd: string | null) {
 
 // ── First-run setup wizard ────────────────────────────────
 
+// --source winget: on machines with multiple configured sources (msstore
+// also ships a matching "Node.js (LTS)" package), winget refuses to guess
+// and just prints the ambiguity instead of installing.
 const NODE_INSTALL_CMD =
-  "winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements";
+  "winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements";
 
 const wizardModal = $("#wizard-modal");
 let wizBusy = 0; // step currently installing (0 = none)
+const wizLogWrap = $("#wiz-log-wrap");
+const wizLogEl = $("#wiz-log");
+const wizLogStatus = $("#wiz-log-status");
+let wizActiveSessionId: string | null = null;
 
 function openWizard() {
   wizardModal.classList.remove("hidden");
@@ -1952,6 +2105,18 @@ async function wizardRefresh() {
 function wizardRunStep(step: number, cmd: string, title: string) {
   wizBusy = step;
   wizardRefresh();
+  wizLogWrap.classList.remove("hidden");
+  wizLogEl.textContent = "";
+  wizLogStatus.textContent = t("wizInstallRunning");
+  wizLogStatus.className = "wiz-log-status running";
+  // newSession is async and doesn't assign the session id until it awaits
+  // spawn_pty — a fast command (e.g. "already installed, nothing to do")
+  // can fire its pty-exit event before that promise resolves, so the exit
+  // handler below would race a wizActiveSessionId that's still null and
+  // miss it entirely. newSession assigns ids as `s${++counter}`, so the id
+  // it's about to use can be predicted synchronously, before anything else
+  // can happen.
+  wizActiveSessionId = `s${counter + 1}`;
   newSession(cmd, `${t("wizInstalling")} ${title}…`, null);
 }
 
@@ -1973,23 +2138,17 @@ $("#wiz-close").addEventListener("click", () => {
 
 // ── Toolbar ───────────────────────────────────────────────
 
+// "+" shows the same folder-picker + launchers as the first-run empty
+// state instead of a plain dropdown, even with tabs already open.
 $("#btn-new-tab").addEventListener("click", (e) => {
   e.stopPropagation();
-  addMenu.classList.toggle("hidden");
+  forceEmptyState = true;
+  updateEmptyState();
 });
-
-addMenu.querySelectorAll("button").forEach((b) =>
-  b.addEventListener("click", async () => {
-    addMenu.classList.add("hidden");
-    // New tab via "+": native folder picker first, session starts there.
-    const cwd = await pickFolder();
-    if (cwd) {
-      pickedFolder = cwd;
-      updatePickedFolderLabel();
-    }
-    launchCli(b.dataset.cmd ?? "", b.dataset.name ?? "Terminal", cwd);
-  }),
-);
+$("#empty-state-close").addEventListener("click", () => {
+  forceEmptyState = false;
+  updateEmptyState();
+});
 
 // Empty-state launcher: pick the folder once, then launch any CLI in it.
 $("#btn-pick-folder").addEventListener("click", async () => {
@@ -2006,8 +2165,6 @@ emptyState.querySelectorAll(".launchers button").forEach((b) =>
     launchCli(el.dataset.cmd ?? "", el.dataset.name ?? "Terminal", pickedFolder);
   }),
 );
-
-document.addEventListener("click", () => addMenu.classList.add("hidden"));
 
 // ── Tab rename + custom color ──────────────────────────────
 
@@ -2074,10 +2231,11 @@ $("#btn-ghost").addEventListener("click", () =>
 // In overlay mode there's no taskbar icon, so × / minimize just hide the
 // window (reachable again via the tray or Alt+X). In window mode there IS
 // a taskbar icon, so minimize should actually minimize like any other app.
-$("#btn-hide").addEventListener("click", () => {
-  if (settings.overlayMode) invoke("hide_overlay");
-  else getCurrentWindow().minimize().catch(() => {});
-});
+// A real OS minimize, not hide_overlay — hide_overlay clears WS_VISIBLE,
+// which drops the taskbar entry entirely (unlike a true minimize, which
+// keeps it, just iconified). The "−" icon promises a minimize; it should
+// behave like one in both modes, and the taskbar icon should never vanish.
+$("#btn-hide").addEventListener("click", () => getCurrentWindow().minimize().catch(() => {}));
 // × always hides to the tray (Discord-style), in both modes — it's the one
 // guaranteed way back via Alt+X/tray if minimize ever gets the window into
 // a stuck state. Quitting is in the tray menu either way.
@@ -2107,10 +2265,12 @@ opacitySlider.addEventListener("input", () => {
   localStorage.setItem("panel-alpha", opacitySlider.value);
 });
 
-// Transparency and a hidden maximize button only make sense floating over
-// a game; a normal window should just be a normal, opaque window.
+// Transparency only makes sense floating over a game; a normal window
+// should just be a normal, opaque window. Maximize stays available in both
+// modes — no reason to withhold it just because it's overlaying a game.
+const modeBadge = $("#mode-badge");
+
 function applyWindowModeUI(overlay: boolean) {
-  btnMaximize.classList.toggle("hidden", overlay);
   opacitySlider.disabled = !overlay;
   if (overlay) {
     const alpha = localStorage.getItem("panel-alpha") ?? "96";
@@ -2119,7 +2279,17 @@ function applyWindowModeUI(overlay: boolean) {
   } else {
     document.documentElement.style.setProperty("--panel-alpha", "1");
   }
+  // Click-through only means something floating over a game — pointless
+  // (and confusing to escape) as a normal taskbar window.
+  ghostBtn.classList.toggle("hidden", !overlay);
+  if (!overlay && overlayEl.classList.contains("ghost")) {
+    invoke("set_ghost_mode", { enabled: false }).catch(() => {});
+  }
+  modeBadge.textContent = overlay ? t("modeOverlay") : t("modeWindow");
+  modeBadge.classList.toggle("mode-active", overlay);
+  updateStatusHint();
 }
+modeBadge.addEventListener("click", () => setOverlayMode(!settings.overlayMode));
 applyWindowModeUI(settings.overlayMode);
 
 // ── Modals ────────────────────────────────────────────────

@@ -37,7 +37,12 @@ static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
 static HOOKS_FILE: OnceLock<PathBuf> = OnceLock::new();
 
 /// Local HTTP listener that Claude Code hooks POST their JSON payload to.
-/// Each request body is forwarded verbatim to the frontend as `agent-hook`.
+/// Each request body is forwarded to the frontend as `agent-hook`. The
+/// `Notification` hook's `matcher` (permission_prompt vs idle_prompt — a
+/// documented, stable enum) is a config-time filter, not part of the hook's
+/// own JSON payload, so `write_hooks_settings` registers it via a distinct
+/// URL per matcher and this recovers it from the query string, merging it
+/// into the JSON as `afkode_notif_type` before forwarding.
 fn start_hook_server(app: AppHandle) -> Option<u16> {
     for port in 4517..4527u16 {
         match tiny_http::Server::http(("127.0.0.1", port)) {
@@ -46,9 +51,31 @@ fn start_hook_server(app: AppHandle) -> Option<u16> {
                     for mut req in server.incoming_requests() {
                         let mut body = String::new();
                         let _ = req.as_reader().read_to_string(&mut body);
-                        if !body.is_empty() {
-                            let _ = app.emit("agent-hook", body);
+                        if body.is_empty() {
+                            let _ = req.respond(tiny_http::Response::empty(200));
+                            continue;
                         }
+                        let notif_type = req.url().split_once('?').and_then(|(_, q)| {
+                            q.split('&').find_map(|kv| {
+                                kv.strip_prefix("notif=").map(|v| v.to_string())
+                            })
+                        });
+                        let payload = match notif_type {
+                            Some(kind) => match serde_json::from_str::<serde_json::Value>(&body) {
+                                Ok(mut v) => {
+                                    if let Some(obj) = v.as_object_mut() {
+                                        obj.insert(
+                                            "afkode_notif_type".into(),
+                                            serde_json::Value::String(kind),
+                                        );
+                                    }
+                                    v.to_string()
+                                }
+                                Err(_) => body,
+                            },
+                            None => body,
+                        };
+                        let _ = app.emit("agent-hook", payload);
                         let _ = req.respond(tiny_http::Response::empty(200));
                     }
                 });
@@ -61,19 +88,39 @@ fn start_hook_server(app: AppHandle) -> Option<u16> {
 }
 
 fn write_hooks_settings(dir: PathBuf, port: u16) -> std::io::Result<PathBuf> {
-    let post = format!("curl -s -m 2 -X POST http://127.0.0.1:{port}/e --data-binary @-");
+    let post = |suffix: &str| {
+        format!("curl -s -m 2 -X POST \"http://127.0.0.1:{port}/e{suffix}\" --data-binary @-")
+    };
     let tool_hook = serde_json::json!([{
         "matcher": "*",
-        "hooks": [{ "type": "command", "command": post }]
+        "hooks": [{ "type": "command", "command": post("") }]
     }]);
     let plain_hook = serde_json::json!([{
-        "hooks": [{ "type": "command", "command": post }]
+        "hooks": [{ "type": "command", "command": post("") }]
     }]);
+    // permission_prompt/idle_prompt are documented, stable matcher values
+    // for Notification (see https://code.claude.com/docs/en/hooks) — far
+    // more reliable than string-matching the notification message text,
+    // which isn't part of any documented/stable format. The matcher itself
+    // is a registration-time filter, not part of the JSON payload Claude
+    // Code sends, so it's recovered via the URL query string instead (see
+    // start_hook_server).
+    let notification_hook = serde_json::json!([
+        {
+            "matcher": "permission_prompt",
+            "hooks": [{ "type": "command", "command": post("?notif=permission_prompt") }]
+        },
+        {
+            "matcher": "idle_prompt",
+            "hooks": [{ "type": "command", "command": post("?notif=idle_prompt") }]
+        }
+    ]);
     let settings = serde_json::json!({
         "hooks": {
+            "SessionStart": plain_hook,
             "PreToolUse": tool_hook,
             "PostToolUse": tool_hook,
-            "Notification": plain_hook,
+            "Notification": notification_hook,
             "UserPromptSubmit": plain_hook,
             "Stop": plain_hook
         }
@@ -93,6 +140,7 @@ struct PtyOutput<'a> {
 #[derive(Clone, Serialize)]
 struct PtyExit<'a> {
     id: &'a str,
+    exit_code: Option<u32>,
 }
 
 /// Split `buf` at the largest prefix that is valid UTF-8. Returns the split
@@ -108,25 +156,6 @@ fn valid_utf8_split(buf: &[u8]) -> (usize, bool) {
         },
     }
 }
-
-// Warp-style "blocks" for plain-shell sessions only: redefine the PowerShell
-// prompt to emit OSC 133 shell-integration markers (A = prompt start,
-// B = command start, D;<exit> = command finished) around itself. No double
-// quotes anywhere in this script — it travels as a single command-line
-// argument and quoting Windows argv correctly with embedded quotes is
-// fragile, so it's simplest to just not need any.
-const PS_PROMPT_PRELUDE: &str = r#"function prompt {
-  $e = [char]27; $bell = [char]7
-  $code = 0
-  if (-not $?) { if ($LASTEXITCODE) { $code = $LASTEXITCODE } else { $code = 1 } }
-  $out = ''
-  if ($global:AfkodeRan) { $out += $e + ']133;D;' + $code + $bell }
-  $out += $e + ']133;A' + $bell
-  $out += 'PS ' + (Get-Location) + '> '
-  $global:AfkodeRan = $true
-  $out += $e + ']133;B' + $bell
-  $out
-}"#;
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -153,7 +182,7 @@ fn spawn_pty(
     let trimmed = cmd.trim();
     let mut builder = if trimmed.is_empty() {
         let mut b = CommandBuilder::new("powershell.exe");
-        b.args(["-NoLogo", "-NoExit", "-Command", PS_PROMPT_PRELUDE]);
+        b.args(["-NoLogo"]);
         b
     } else if (trimmed == "claude" || trimmed.starts_with("claude ")) && hooks {
         // Opt-in integration: inject hook settings so the agent reports
@@ -251,10 +280,19 @@ fn spawn_pty(
                 },
             );
         }
-        if let Some(state) = app.try_state::<PtyState>() {
-            state.sessions.lock().unwrap().remove(&id);
-        }
-        let _ = app.emit("pty-exit", PtyExit { id: &id });
+        // The PTY closing means the child is gone or about to be reaped;
+        // wait() on the handle we're removing anyway to learn how it
+        // actually exited, instead of just discarding it.
+        let exit_code = app.try_state::<PtyState>().and_then(|state| {
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .and_then(|mut s| s.child.wait().ok())
+                .map(|status| status.exit_code())
+        });
+        let _ = app.emit("pty-exit", PtyExit { id: &id, exit_code });
     });
 
     Ok(())
@@ -294,6 +332,40 @@ fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// A pre-existing npm install with a custom `prefix` (nvm-windows, a manual
+/// `npm config set prefix`, ...) puts its global bin dir somewhere neither
+/// hardcoded fallback below covers. Shelling out to `npm` (a .cmd shim —
+/// needs `cmd.exe`; a bare `Command::new("npm")` won't resolve it) on every
+/// single tab open would slow down plain shell tabs that don't need it, so
+/// a successful result is cached — npm's persisted prefix doesn't change
+/// mid-session. A *failed* lookup (npm not installed yet) is deliberately
+/// NOT cached: that's exactly the case this exists for — Node/npm getting
+/// installed mid-session via the setup wizard — and caching `None` forever
+/// would permanently defeat it.
+static NPM_PREFIX_CACHE: Mutex<Option<String>> = Mutex::new(None);
+
+fn npm_prefix() -> Option<String> {
+    if let Some(cached) = NPM_PREFIX_CACHE.lock().unwrap().clone() {
+        return Some(cached);
+    }
+    let mut c = std::process::Command::new("cmd.exe");
+    c.args(["/c", "npm", "config", "get", "prefix"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let prefix = c.output().ok().and_then(|o| {
+        if !o.status.success() {
+            return None;
+        }
+        let prefix = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        (!prefix.is_empty()).then_some(prefix)
+    })?;
+    *NPM_PREFIX_CACHE.lock().unwrap() = Some(prefix.clone());
+    Some(prefix)
+}
+
 /// PATH plus tool locations that may have been installed after this process
 /// started (Node.js, npm global bin) — lets the setup wizard work without an
 /// app restart.
@@ -302,6 +374,9 @@ fn augmented_path() -> String {
     let mut extras: Vec<String> = vec!["C:\\Program Files\\nodejs".into()];
     if let Ok(appdata) = std::env::var("APPDATA") {
         extras.push(format!("{appdata}\\npm"));
+    }
+    if let Some(prefix) = npm_prefix() {
+        extras.push(prefix);
     }
     for e in extras {
         if std::path::Path::new(&e).exists() && !path.to_lowercase().contains(&e.to_lowercase()) {
@@ -673,15 +748,16 @@ fn set_ghost_mode(app: AppHandle, enabled: bool) {
     }
 }
 
-/// Overlay mode (always-on-top, hidden from taskbar/Alt-Tab) vs. a normal
-/// window — users forget it's an overlay outside of games, where staying
-/// topmost just means it randomly buries or gets buried by other fullscreen
-/// apps instead of behaving predictably.
+/// Overlay mode (always-on-top) vs. a normal window — users forget it's an
+/// overlay outside of games, where staying topmost just means it randomly
+/// buries or gets buried by other fullscreen apps instead of behaving
+/// predictably. The taskbar icon itself is intentionally NOT tied to this:
+/// hiding "the app is open" affordance made the window feel like it could
+/// vanish entirely, on top of the always-on-top confusion this exists to fix.
 #[tauri::command]
 fn set_window_mode(app: AppHandle, overlay: bool) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_always_on_top(overlay);
-        let _ = window.set_skip_taskbar(!overlay);
     }
 }
 
