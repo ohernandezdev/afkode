@@ -276,18 +276,25 @@ fn split_flags(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
+    // An explicitly-quoted empty arg ("") must survive as an empty token —
+    // dropping it would silently shift every argument after it.
+    let mut was_quoted = false;
     for c in s.chars() {
         match c {
-            '"' => quoted = !quoted,
+            '"' => {
+                quoted = !quoted;
+                was_quoted = true;
+            }
             c if c.is_whitespace() && !quoted => {
-                if !cur.is_empty() {
+                if !cur.is_empty() || was_quoted {
                     out.push(std::mem::take(&mut cur));
                 }
+                was_quoted = false;
             }
             c => cur.push(c),
         }
     }
-    if !cur.is_empty() {
+    if !cur.is_empty() || was_quoted {
         out.push(cur);
     }
     out
@@ -325,6 +332,12 @@ mod tests {
     fn split_flags_empty_and_whitespace() {
         assert!(split_flags("").is_empty());
         assert!(split_flags("   ").is_empty());
+    }
+
+    #[test]
+    fn split_flags_empty_quoted_arg_survives() {
+        assert_eq!(split_flags(r#"-p "" --foo"#), vec!["-p", "", "--foo"]);
+        assert_eq!(split_flags(r#"--foo="bar baz""#), vec!["--foo=bar baz"]);
     }
 
     #[test]
@@ -402,15 +415,21 @@ async fn spawn_pty(
         let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         b.args(refs);
         b
-    } else {
+    } else if trimmed.contains('"') {
         // Pass the raw line through an env var that cmd expands itself:
         // handing it over as an argument would run it through ArgvQuote,
-        // which wraps the whole command in quotes and escapes embedded `"`
-        // as `\"` — a syntax cmd.exe does not parse — silently corrupting
-        // any command containing quotes (e.g. `git commit -m "fix: x"`).
+        // which escapes embedded `"` as `\"` — a syntax cmd.exe does not
+        // parse — silently corrupting any command containing quotes (e.g.
+        // `git commit -m "fix: x"`). Trade-off: cmd's %-expansion is
+        // single-pass, so `%VARS%` inside the command stay literal on this
+        // path — which is why quote-free commands keep the direct route.
         let mut b = CommandBuilder::new("cmd.exe");
         b.env("AFKODE_CMD", trimmed);
         b.args(["/c", "%AFKODE_CMD%"]);
+        b
+    } else {
+        let mut b = CommandBuilder::new("cmd.exe");
+        b.args(["/c", trimmed]);
         b
     };
     let dir = cwd
@@ -1104,16 +1123,19 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?
         .ok_or("no update available")?;
+    // Download BEFORE killing anything: a failed download (network drop,
+    // rate limit) must leave the user's sessions untouched.
+    let bytes = update
+        .download(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
     if let Some(state) = app.try_state::<PtyState>() {
         let mut sessions = state.sessions.lock().unwrap();
         for (_, mut s) in sessions.drain() {
             let _ = s.child.kill();
         }
     }
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| e.to_string())?;
+    update.install(bytes).map_err(|e| e.to_string())?;
     // Only reached if the installer didn't terminate us (e.g. non-Windows).
     let _ = app.emit("update-installed", update.version.clone());
     Ok(())

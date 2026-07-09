@@ -1546,6 +1546,10 @@ setInterval(() => {
     wizLogStatus.textContent = t("wizInstallTimeout");
     wizLogStatus.className = "wiz-log-status fail";
     wizActiveSessionId = null;
+    // The pty-exit that follows no longer matches (id already nulled) —
+    // resolve the busy state here or the step stays stuck spinning.
+    wizBusy = 0;
+    wizardRefresh();
   }
 }, 1000);
 
@@ -1683,10 +1687,11 @@ function showAwaySummary(d: Totals, awayMs: number) {
   $("#away-action").classList.add("hidden");
   $("#away-banner").classList.remove("hidden");
   clearTimeout(awayBannerTimer);
-  awayBannerTimer = window.setTimeout(
-    () => $("#away-banner").classList.add("hidden"),
-    45_000,
-  );
+  awayBannerTimer = window.setTimeout(() => {
+    $("#away-banner").classList.add("hidden");
+    // Bring back the one-shot update prompt this summary displaced.
+    showUpdateBanner();
+  }, 45_000);
 }
 
 let prevSilent = false;
@@ -1731,11 +1736,24 @@ listen("dnd-toggle", () => {
 // happens exclusively behind this button.
 const awayAction = $<HTMLButtonElement>("#away-action");
 
-listen<string>("update-available", (e) => {
-  $("#away-text").textContent = t("updateAvailable").replace("{v}", e.payload);
+// The banner is shared with the away summary, and update-available fires
+// only once per run — remember the pending version so the prompt can be
+// re-shown after a summary overwrites it (or its 45s hide timer fires).
+let pendingUpdate: string | null = null;
+
+function showUpdateBanner() {
+  if (!pendingUpdate) return;
+  $("#away-text").textContent = t("updateAvailable").replace("{v}", pendingUpdate);
   awayAction.textContent = t("updateInstallBtn");
   awayAction.classList.remove("hidden");
+  // A stale away-summary hide timer must not take this banner down.
+  clearTimeout(awayBannerTimer);
   $("#away-banner").classList.remove("hidden");
+}
+
+listen<string>("update-available", (e) => {
+  pendingUpdate = e.payload;
+  showUpdateBanner();
 });
 
 awayAction.addEventListener("click", async () => {
@@ -1754,6 +1772,7 @@ awayAction.addEventListener("click", async () => {
 });
 
 listen<string>("update-installed", (e) => {
+  pendingUpdate = null;
   awayAction.classList.add("hidden");
   $("#away-text").textContent = t("updateReady").replace("{v}", e.payload);
   $("#away-banner").classList.remove("hidden");
