@@ -59,11 +59,14 @@ openBtn.addEventListener("click", () => invoke("show_overlay"));
 const replyBtn = document.getElementById("reply")!;
 replyBtn.addEventListener("click", () => invoke("show_palette"));
 
-// Tooltip follows the main window's language (shared localStorage).
+// Tooltip follows the main window's language (shared localStorage); the
+// hotkey is the Option key on macOS.
+const altX = navigator.platform.toUpperCase().includes("MAC") ? "⌥X" : "Alt+X";
 function localizeTooltip() {
   try {
     const lang = JSON.parse(localStorage.getItem("settings") ?? "{}").lang;
-    openBtn.title = lang === "es" ? "Abrir overlay (Alt+X)" : "Open overlay (Alt+X)";
+    openBtn.title = lang === "es" ? `Abrir overlay (${altX})` : `Open overlay (${altX})`;
+    replyBtn.title = altX.replace("X", "P");
   } catch {
     /* keep default */
   }

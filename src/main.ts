@@ -227,10 +227,16 @@ const THEMES: Record<string, ThemeDef> = {
 
 // ── Fonts ─────────────────────────────────────────────────
 
+// Candidates span all three OSes — document.fonts.check() keeps only the
+// ones actually installed, so the extra macOS faces (SF Mono, Menlo,
+// Monaco) are inert on Windows/Linux and vice versa.
 const FONT_CANDIDATES = [
   "Cascadia Mono",
   "Cascadia Code",
   "Consolas",
+  "SF Mono",
+  "Menlo",
+  "Monaco",
   "JetBrains Mono",
   "Fira Code",
   "Source Code Pro",
@@ -247,7 +253,11 @@ const availableFonts = FONT_CANDIDATES.filter((f) => {
     return false;
   }
 });
-if (availableFonts.length === 0) availableFonts.push("Consolas");
+if (availableFonts.length === 0) {
+  availableFonts.push(
+    navigator.platform.toUpperCase().includes("MAC") ? "Menlo" : "Consolas",
+  );
+}
 
 const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18];
 
@@ -535,19 +545,39 @@ function loadSettings(): Settings {
 
 let settings = loadSettings();
 
-const t = (key: string) => I18N[settings.lang][key] ?? key;
+// Translated strings hardcode Alt-based hotkeys (Alt+X, Alt+G, …); on
+// macOS those keys are Option chords, so rewrite them for display (macKeys
+// is defined in the Platform section below — evaluated lazily, at call
+// time, so the ordering is fine).
+const t = (key: string) => {
+  const v = I18N[settings.lang][key] ?? key;
+  return isMac() ? macKeys(v) : v;
+};
 
 function saveSettings() {
   localStorage.setItem("settings", JSON.stringify(settings));
 }
 
 // ── Platform ──────────────────────────────────────────────
-// Static facts from the Rust side; the defaults assume Windows so the UI is
-// correct before the invoke resolves (and unchanged by it there).
+// Static facts from the Rust side. The OS is also detectable synchronously
+// from the webview (navigator.platform: "Win32" / "MacIntel" / "Linux …"),
+// so keyboard handlers and hotkey labels are correct from the first frame
+// instead of assuming Windows until the invoke resolves.
+const navOs = navigator.platform.toUpperCase();
 let platform: { os: string; ttsAvailable: boolean } = {
-  os: "windows",
+  os: navOs.includes("MAC") ? "macos" : navOs.includes("LINUX") ? "linux" : "windows",
   ttsAvailable: true,
 };
+const isMac = () => platform.os === "macos";
+// Hotkey display: the Alt key is Option on macOS; render ⌥ there. Windows
+// and Linux strings pass through untouched.
+const macKeys = (s: string) =>
+  s
+    .replace(/Alt\+Tab/g, "⌘Tab")
+    .replace(/Ctrl\+K/g, "⌘K")
+    .replace(/<kbd>Alt<\/kbd>\+<kbd>/g, "<kbd>⌥")
+    .replace(/Alt\+/g, "⌥");
+const altHK = (key: string) => (isMac() ? `⌥${key}` : `Alt+${key}`);
 
 function applyPlatform() {
   if (platform.os !== "windows") {
@@ -567,6 +597,9 @@ function applyPlatform() {
   }
 }
 
+// Apply the synchronous detection immediately (shell-tab label), then let
+// the Rust side refine it (authoritative os + TTS availability).
+applyPlatform();
 invoke<{ os: string; ttsAvailable: boolean }>("platform_info")
   .then((p) => {
     platform = p;
@@ -855,7 +888,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   const themeDef = THEMES[settings.theme];
   const term = new Terminal({
     allowTransparency: true,
-    fontFamily: `"${settings.font}", Consolas, monospace`,
+    fontFamily: `"${settings.font}", Consolas, Menlo, monospace`,
     fontSize: settings.size,
     lineHeight: 1.25,
     letterSpacing: 0,
@@ -971,7 +1004,10 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
 
   term.attachCustomKeyEventHandler((ev) => {
     if (ev.type !== "keydown") return true;
-    if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyF") {
+    // App-level chords ride Ctrl on Windows/Linux but Cmd on macOS, where
+    // Ctrl+F/K/V are readline editing keys the shell must keep receiving.
+    const mod = isMac() ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey;
+    if (mod && !ev.shiftKey && ev.code === "KeyF") {
       ev.preventDefault();
       openSearch();
       return false;
@@ -986,21 +1022,34 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
       invoke("write_pty", { id, data: "\x1b\r" }).catch(() => {});
       return false;
     }
-    // Plain Ctrl+V would send ^V to the TUI instead of pasting — intercept.
-    // Without preventDefault, the browser's own paste also fires on xterm's
-    // hidden textarea, so the clipboard text lands twice.
-    if (ev.ctrlKey && ev.code === "KeyV") {
+    // Plain Ctrl+V (Cmd+V on macOS) would send ^V to the TUI instead of
+    // pasting — intercept. Without preventDefault, the browser's own paste
+    // also fires on xterm's hidden textarea, so the clipboard text lands
+    // twice.
+    if (mod && ev.code === "KeyV") {
       ev.preventDefault();
       pasteFromClipboard();
       return false;
     }
-    if (ev.ctrlKey && ev.shiftKey && ev.code === "KeyC") {
+    if (mod && ev.shiftKey && ev.code === "KeyC") {
       ev.preventDefault();
       const sel = term.getSelection();
       if (sel) clipWrite(sel).catch(() => {});
       // No text selection but a block is selected: copy its output.
       else blocks.copySelectedOutput();
       return false;
+    }
+    // macOS-native copy: Cmd+C with a selection copies it (Ctrl+C keeps
+    // meaning SIGINT, exactly like Terminal.app). Without a selection the
+    // chord falls through and does nothing.
+    if (isMac() && ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey && ev.code === "KeyC") {
+      const sel = term.getSelection();
+      if (sel) {
+        ev.preventDefault();
+        clipWrite(sel).catch(() => {});
+        return false;
+      }
+      return true;
     }
     // Block navigation — Cmd on macOS, Ctrl elsewhere. Only consumed once
     // OSC 133 has been seen, so TUIs keep their own Ctrl+arrow bindings.
@@ -1014,8 +1063,9 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     }
     // Without this, xterm sends the literal ^K (0x0B) byte to the shell —
     // in readline/PSReadLine that's "kill to end of line," silently
-    // deleting whatever was typed, in addition to opening search.
-    if (ev.ctrlKey && !ev.shiftKey && ev.code === "KeyK") {
+    // deleting whatever was typed, in addition to opening search. On macOS
+    // this rides Cmd+K instead and Ctrl+K stays a shell editing key.
+    if (mod && !ev.shiftKey && ev.code === "KeyK") {
       ev.preventDefault();
       openGlobalSearch();
       return false;
@@ -1252,7 +1302,7 @@ function notify(session: Session, bodyKey: string) {
     try {
       sendNotification({
         title: "AFKode",
-        body: `${session.title} ${t(bodyKey)} — Alt+X`,
+        body: `${session.title} ${t(bodyKey)} — ${altHK("X")}`,
       });
     } catch {
       /* notifications unavailable */
@@ -1922,7 +1972,8 @@ searchInput.addEventListener("keydown", (e) => {
 $("#search-close").addEventListener("click", closeSearch);
 
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && !e.shiftKey && e.code === "KeyF") {
+  const mod = isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey;
+  if (mod && !e.shiftKey && e.code === "KeyF") {
     e.preventDefault();
     openSearch();
   }
@@ -1970,7 +2021,7 @@ function applyTheme() {
 
 function applyFont() {
   for (const s of sessions.values()) {
-    s.term.options.fontFamily = `"${settings.font}", Consolas, monospace`;
+    s.term.options.fontFamily = `"${settings.font}", Consolas, Menlo, monospace`;
     s.term.options.fontSize = settings.size;
     safeFit(s.term, s.fit, s.pane);
   }
@@ -1978,14 +2029,17 @@ function applyFont() {
 
 function updateStatusHint() {
   const altX = settings.overlayMode ? t("hintAltXOverlay") : t("hintAltXWindow");
+  // ⌥ chords on macOS; Alt+key pairs elsewhere.
+  const kbd = (key: string) =>
+    isMac() ? `<kbd>⌥${key}</kbd>` : `<kbd>Alt</kbd>+<kbd>${key}</kbd>`;
   // Click-through only makes sense floating over a game — drop it entirely
   // in window mode instead of hinting at a feature that's hidden anyway.
   const ghost = settings.overlayMode
-    ? `<kbd>Alt</kbd>+<kbd>G</kbd> ${t("hintGhost")}&ensp;·&ensp;`
+    ? `${kbd("G")} ${t("hintGhost")}&ensp;·&ensp;`
     : "";
   $("#status-hint").innerHTML =
-    `<kbd>Alt</kbd>+<kbd>X</kbd> ${altX}&ensp;·&ensp;${ghost}` +
-    `<kbd>Alt</kbd>+<kbd>P</kbd> ${t("hintPrompt")}&ensp;·&ensp;<kbd>Alt</kbd>+<kbd>A</kbd> ${t("hintApprove")}`;
+    `${kbd("X")} ${altX}&ensp;·&ensp;${ghost}` +
+    `${kbd("P")} ${t("hintPrompt")}&ensp;·&ensp;${kbd("A")} ${t("hintApprove")}`;
 }
 
 function applyI18n() {
@@ -2572,7 +2626,8 @@ globalSearchModal.addEventListener("click", (e) => {
   if (e.target === globalSearchModal) closeGlobalSearch();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && !e.shiftKey && e.code === "KeyK") {
+  const mod = isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey;
+  if (mod && !e.shiftKey && e.code === "KeyK") {
     e.preventDefault();
     openGlobalSearch();
   }
@@ -2692,11 +2747,20 @@ function langForPath(path: string): string | null {
 }
 
 async function openFilePreview(raw: string, cwd: string | null) {
+  // POSIX absolute paths start with "/" — only meaningful off Windows,
+  // where a leading "/" in agent output is instead likely a relative
+  // separator artifact and the drive-letter/UNC/~ checks do the work.
+  const win = platform.os === "windows";
   const isAbsolute =
-    /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("~");
+    /^[A-Za-z]:[\\/]/.test(raw) ||
+    raw.startsWith("\\\\") ||
+    raw.startsWith("~") ||
+    (!win && raw.startsWith("/"));
   const path = isAbsolute
     ? raw
-    : `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\");
+    : win
+      ? `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\")
+      : `${cwd ?? "."}/${raw}`;
   filePreviewTitle.textContent = raw;
   filePreviewBody.className = "file-preview-body plain";
   filePreviewBody.textContent = "…";
