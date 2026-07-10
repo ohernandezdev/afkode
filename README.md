@@ -16,6 +16,20 @@ Built with **Tauri 2** (Rust + the OS webview) and **xterm.js with the WebGL ren
 
 On macOS, `Alt` is the **Option (⌥)** key: the shortcuts are `⌥X`, `⌥G`, `⌥P` / `⌃⌥P`, `⌥A`, `⌥N`.
 
+### In-app shortcuts
+
+| Windows / Linux | macOS | Action |
+|---|---|---|
+| `Ctrl+F` | `⌘F` | Search the terminal scrollback |
+| `Ctrl+K` | `⌘K` | Search open sessions |
+| `Ctrl+V` | `⌘V` | Paste (clipboard image → temp PNG path for the agent) |
+| — | `⌘C` | Copy the selection (`Ctrl+C` stays SIGINT) |
+| `Ctrl+Shift+C` | `⌘⇧C` | Copy selection, or the selected block's output |
+| `Ctrl+↑/↓` | `⌘↑/↓` | Jump between command blocks |
+| `Shift+Enter` | `Shift+Enter` | Literal newline in agent TUIs (no submit) |
+
+On macOS, `Ctrl+F`, `Ctrl+K` and `Ctrl+V` pass through to the shell (they are readline editing keys there).
+
 ## Features
 
 - **System tray**: AFKode lives next to the clock — left-click toggles the overlay, right-click opens the menu (ghost mode, palette, quit). The window's × hides to the tray instead of closing.
@@ -31,13 +45,13 @@ On macOS, `Alt` is the **Option (⌥)** key: the shortcuts are `⌥X`, `⌥G`, `
 - **Voice announcements (TTS)**: optional copilot-style voice over game audio; immune to Windows fullscreen toast suppression.
 - **Agent-aware notifications**: if the overlay is hidden and your agent finishes or gets stuck waiting for input (permission prompt, `y/n`, ANSI bell), you get a Windows toast + optional beep.
 - **Command blocks (Warp-style)**: shell tabs group each command + its output into a block via OSC 133 shell integration (injected at spawn — your profile files are never edited). Colored gutter bar per block (green ✓ / red ✗ by exit status), hover toolbar (copy command / output / both, re-run), `Ctrl+↑/↓` (`Cmd` on macOS) jumps between blocks, and `Ctrl+Shift+C` with a block selected copies its output. Automatic for PowerShell (Windows), bash (Linux) and zsh; other shells can [opt in manually](#command-blocks-in-other-shells). Agent TUI tabs are unaffected.
-- **Search** (`Ctrl+F`), **Unicode 11** cell widths, and **drag & drop** of files/folders (path pasted into the active session).
+- **Search** (`Ctrl+F` / `⌘F`), **Unicode 11** cell widths, and **drag & drop** of files/folders (path pasted into the active session).
 - **Memory saver**: hiding the overlay trims the host working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
 - **Folder picker**: sessions start in a project folder chosen via the native Windows dialog.
 - **CLI detection**: launchers detect which agents are installed; missing ones install with one click (`npm install -g …` in a tab).
-- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell — your login shell on macOS/Linux) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` searches open sessions.
+- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell — your login shell on macOS/Linux) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` (`⌘K`) searches open sessions.
 - **Git footer**: branch, `+added/-removed` diff stat and dirty indicator for the active session's folder, Warp-style.
-- **Real terminal (ConPTY)**: truecolor, interactive apps, GPU-rendered. Copy-on-select, `Ctrl+Shift+C/V`, right-click copy/paste (inside TUIs, select with `Shift+drag`).
+- **Real terminal (ConPTY)**: truecolor, interactive apps, GPU-rendered. Copy-on-select, `Ctrl+Shift+C/V` (`⌘C`/`⌘V` on macOS), right-click copy/paste (inside TUIs, select with `Shift+drag`).
 - **Customization**: 9 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Dark, Monokai), font family/size, English/Spanish UI, background opacity slider.
 - **Window memory**: position and size are restored across sessions.
 
@@ -58,12 +72,15 @@ AFKode is Windows-first; macOS and Linux builds ship from the same codebase with
 | Setup wizard Node.js install | ✅ winget | ⚠️ Homebrew if present | ⚠️ apt/dnf (needs sudo password in the tab) |
 | Clipboard image paste to agent | ✅ | ✅ AppleScript | ⚠️ needs `wl-paste` or `xclip` |
 | Tray icon | ✅ | ✅ menu bar | ✅ (needs an appindicator-capable desktop) |
-| Auto-updater (signed artifacts) | ✅ NSIS | ✅ .dmg/.app | ✅ AppImage only (deb/rpm update via package manager) |
+| Auto-updater (signed artifacts) | ✅ NSIS | ✅ `.app.tar.gz` (manual install via `.dmg`) | ✅ AppImage only (deb/rpm update via package manager) |
 | Overlay transparency / always-on-top | ✅ | ✅ | ⚠️ X11 yes; Wayland depends on the compositor |
+| In-app shortcuts | `Ctrl+…` | `⌘…` (`Ctrl+F/K/V` pass to the shell) | `Ctrl+…` |
+| CLI detection under GUI PATH | ✅ | ✅ Homebrew, npm prefix, `~/.nvm` | ✅ |
 
 Notes:
 - **Wayland**: fullscreen-game detection is out of scope (no protocol for inspecting foreign windows); DND works via the manual `Alt+N` toggle. Under XWayland-capable setups the X11 path may still work.
 - macOS/Linux builds are CI-verified (build + `cargo check`/tests per OS); day-to-day development happens on Windows, so treat non-Windows paths as less battle-tested and report issues.
+- A full per-module macOS audit (what works, what was fixed, what is Windows-only by design, and what still needs on-device verification) lives in [MACOS-AUDIT.md](MACOS-AUDIT.md).
 
 ### Command blocks in other shells
 
