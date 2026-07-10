@@ -540,6 +540,39 @@ function saveSettings() {
   localStorage.setItem("settings", JSON.stringify(settings));
 }
 
+// ── Platform ──────────────────────────────────────────────
+// Static facts from the Rust side; the defaults assume Windows so the UI is
+// correct before the invoke resolves (and unchanged by it there).
+let platform: { os: string; ttsAvailable: boolean } = {
+  os: "windows",
+  ttsAvailable: true,
+};
+
+function applyPlatform() {
+  if (platform.os !== "windows") {
+    // The plain-terminal tab runs the user's login shell, not PowerShell.
+    const shellBtn = document.querySelector<HTMLButtonElement>('button[data-cmd=""]');
+    if (shellBtn) {
+      shellBtn.dataset.name = "Shell";
+      if (shellBtn.lastChild) shellBtn.lastChild.textContent = "Shell";
+    }
+  }
+  // No voice engine (Linux without spd-say): hide the toggle instead of
+  // offering a switch that can't do anything.
+  if (!platform.ttsAvailable) {
+    settings.tts = false;
+    document.querySelector("#row-tts")?.classList.add("hidden");
+    document.querySelector("#note-tts")?.classList.add("hidden");
+  }
+}
+
+invoke<{ os: string; ttsAvailable: boolean }>("platform_info")
+  .then((p) => {
+    platform = p;
+    applyPlatform();
+  })
+  .catch(() => {});
+
 // ── Session management ────────────────────────────────────
 
 interface HookState {
@@ -1164,6 +1197,12 @@ function dndSilent(): boolean {
 // Sim-racing-copilot style voice announcements: heard over game audio and
 // unaffected by Windows fullscreen toast suppression.
 function speak(text: string) {
+  if (platform.os !== "windows") {
+    // WKWebView/WebKitGTK speechSynthesis is unreliable or missing; the
+    // Rust side shells out to `say` (macOS) / `spd-say` (Linux) instead.
+    invoke("speak_text", { text }).catch(() => {});
+    return;
+  }
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = settings.lang === "es" ? "es-ES" : "en-US";
@@ -2164,8 +2203,13 @@ function launchCli(cmd: string, name: string, cwd: string | null) {
 // --source winget: on machines with multiple configured sources (msstore
 // also ships a matching "Node.js (LTS)" package), winget refuses to guess
 // and just prints the ambiguity instead of installing.
-const NODE_INSTALL_CMD =
-  "winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements";
+function nodeInstallCmd(): string {
+  if (platform.os === "macos")
+    return "brew install node || echo 'Homebrew not found — install Node.js from https://nodejs.org and re-run this step'";
+  if (platform.os === "linux")
+    return "sudo apt-get install -y nodejs npm || sudo dnf install -y nodejs || echo 'Install Node.js with your distro package manager, then re-run this step'";
+  return "winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements";
+}
 
 const wizardModal = $("#wizard-modal");
 let wizBusy = 0; // step currently installing (0 = none)
@@ -2230,7 +2274,7 @@ function wizardRunStep(step: number, cmd: string, title: string) {
 }
 
 $("#wiz-btn-1").addEventListener("click", () =>
-  wizardRunStep(1, NODE_INSTALL_CMD, "Node.js"),
+  wizardRunStep(1, nodeInstallCmd(), "Node.js"),
 );
 $("#wiz-btn-2").addEventListener("click", () =>
   wizardRunStep(2, CLI_INSTALL.claude, "Claude Code"),
@@ -2519,7 +2563,7 @@ document.addEventListener("keydown", (e) => {
 
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 const FILE_LINK_RE = new RegExp(
-  String.raw`(?<!\/\/)(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])?[\w.-]+(?:[\\/][\w.-]+)*\.(?:mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|${IMAGE_EXTS.join("|")})\b`,
+  String.raw`(?<!\/\/)(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/]|\/)?[\w.-]+(?:[\\/][\w.-]+)*\.(?:mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|${IMAGE_EXTS.join("|")})\b`,
   "i",
 );
 

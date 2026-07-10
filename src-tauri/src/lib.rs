@@ -299,8 +299,42 @@ fn split_flags(s: &str) -> Vec<String> {
 
 /// Quote a string as a PowerShell single-quoted literal: everything inside
 /// '…' is verbatim, and a doubled '' is the only recognized escape.
+#[cfg(target_os = "windows")]
 fn ps_squote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Quote a string as a POSIX-shell single-quoted literal ('…' is verbatim;
+/// an embedded ' becomes '\'' — close, escaped quote, reopen).
+#[cfg(not(target_os = "windows"))]
+fn sh_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// The user's login shell: $SHELL, falling back to the OS default. The
+/// fallback matters for launchd/systemd-spawned GUI processes where $SHELL
+/// may be absent.
+#[cfg(not(target_os = "windows"))]
+fn login_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "/bin/zsh".into()
+            } else {
+                "/bin/bash".into()
+            }
+        })
+}
+
+/// Home directory env var, per OS (Windows has no HOME).
+fn home_dir_env() -> Option<String> {
+    if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE").ok()
+    } else {
+        std::env::var("HOME").ok()
+    }
 }
 
 #[cfg(test)]
@@ -343,6 +377,14 @@ mod tests {
         assert_eq!(split_flags(r#"--foo="bar baz""#), vec!["--foo=bar baz"]);
     }
 
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn sh_squote_escapes_single_quotes() {
+        assert_eq!(sh_squote("plain"), "'plain'");
+        assert_eq!(sh_squote("it's"), r"'it'\''s'");
+    }
+
+    #[cfg(target_os = "windows")]
     #[test]
     fn ps_squote_escapes_single_quotes() {
         assert_eq!(ps_squote("plain"), "'plain'");
@@ -355,8 +397,10 @@ mod tests {
 
     #[test]
     fn expand_tilde_variants() {
-        let home = std::env::var("USERPROFILE").unwrap();
+        let home = home_dir_env().unwrap();
         assert_eq!(expand_tilde("~"), home);
+        assert_eq!(expand_tilde("~/x"), format!("{home}/x"));
+        #[cfg(target_os = "windows")]
         assert_eq!(expand_tilde(r"~\x"), format!(r"{home}\x"));
         assert_eq!(expand_tilde("~user/x"), "~user/x");
         assert_eq!(expand_tilde(r"C:\x"), r"C:\x");
@@ -408,6 +452,7 @@ async fn spawn_pty(
         .map_err(|e| e.to_string())?;
 
     let trimmed = cmd.trim();
+    #[cfg(target_os = "windows")]
     let mut builder = if trimmed.is_empty() {
         let mut b = CommandBuilder::new("powershell.exe");
         b.args(["-NoLogo"]);
@@ -465,9 +510,53 @@ async fn spawn_pty(
         b.args(["/c", trimmed]);
         b
     };
-    let dir = cwd
-        .filter(|c| !c.trim().is_empty())
-        .or_else(|| std::env::var("USERPROFILE").ok());
+    #[cfg(not(target_os = "windows"))]
+    let mut builder = {
+        // Login shell (-l on macOS): GUI apps launched from Finder/launchd
+        // inherit a minimal environment, so without sourcing the user's
+        // profile neither claude nor npm would be on PATH. Linux desktop
+        // sessions already export the full user environment.
+        let shell = login_shell();
+        let mut b = CommandBuilder::new(&shell);
+        if cfg!(target_os = "macos") {
+            b.arg("-l");
+        }
+        if trimmed.is_empty() {
+            // No args: interactive shell (stdin is the PTY).
+            b
+        } else if trimmed == "claude" || trimmed.starts_with("claude ") {
+            // Same contract as the Windows -NoExit branch: when claude
+            // exits (or crashes) the tab drops back to a live prompt in the
+            // same cwd via `exec`, and pty-exit only fires when the shell
+            // itself exits.
+            let mut args: Vec<String> = vec!["claude".into()];
+            if let Some(rest) = trimmed.strip_prefix("claude") {
+                args.extend(split_flags(rest.trim()));
+            }
+            if hooks {
+                if let Some(hooks_file) = HOOKS_FILE.get() {
+                    args.push("--settings".into());
+                    args.push(hooks_file.to_string_lossy().to_string());
+                }
+            }
+            let script = format!(
+                "{}; exec {}",
+                args.iter()
+                    .map(|a| sh_squote(a))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                sh_squote(&shell)
+            );
+            b.args(["-c", &script]);
+            b
+        } else {
+            // Arbitrary command (setup wizard installs, other agent CLIs):
+            // hand the raw line to the shell, matching cmd.exe /c semantics.
+            b.args(["-c", trimmed]);
+            b
+        }
+    };
+    let dir = cwd.filter(|c| !c.trim().is_empty()).or_else(home_dir_env);
     if let Some(dir) = dir {
         builder.cwd(dir);
     }
@@ -630,13 +719,21 @@ fn npm_prefix() -> Option<String> {
     if let Some(cached) = NPM_PREFIX_CACHE.lock().unwrap().clone() {
         return Some(cached);
     }
-    let mut c = std::process::Command::new("cmd.exe");
-    c.args(["/c", "npm", "config", "get", "prefix"]);
     #[cfg(target_os = "windows")]
-    {
+    let mut c = {
+        let mut c = std::process::Command::new("cmd.exe");
+        c.args(["/c", "npm", "config", "get", "prefix"]);
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+        c
+    };
+    // Login shell so nvm/homebrew-managed npm resolves in GUI launches.
+    #[cfg(not(target_os = "windows"))]
+    let mut c = {
+        let mut c = std::process::Command::new("/bin/sh");
+        c.args(["-lc", "npm config get prefix"]);
+        c
+    };
     let prefix = c.output().ok().and_then(|o| {
         if !o.status.success() {
             return None;
@@ -653,16 +750,35 @@ fn npm_prefix() -> Option<String> {
 /// app restart.
 fn augmented_path() -> String {
     let mut path = std::env::var("PATH").unwrap_or_default();
-    let mut extras: Vec<String> = vec!["C:\\Program Files\\nodejs".into()];
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        extras.push(format!("{appdata}\\npm"));
-    }
-    if let Some(prefix) = npm_prefix() {
-        extras.push(prefix);
-    }
+    #[cfg(target_os = "windows")]
+    let (sep, extras) = {
+        let mut extras: Vec<String> = vec!["C:\\Program Files\\nodejs".into()];
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            extras.push(format!("{appdata}\\npm"));
+        }
+        if let Some(prefix) = npm_prefix() {
+            extras.push(prefix);
+        }
+        (';', extras)
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (sep, extras) = {
+        // Homebrew (both prefixes) and the common per-user npm locations.
+        let mut extras: Vec<String> =
+            vec!["/usr/local/bin".into(), "/opt/homebrew/bin".into()];
+        if let Some(home) = home_dir_env() {
+            extras.push(format!("{home}/.npm-global/bin"));
+            extras.push(format!("{home}/.local/bin"));
+        }
+        if let Some(prefix) = npm_prefix() {
+            // Unlike Windows, npm's global bin lives under <prefix>/bin.
+            extras.push(format!("{prefix}/bin"));
+        }
+        (':', extras)
+    };
     for e in extras {
         if std::path::Path::new(&e).exists() && !path.to_lowercase().contains(&e.to_lowercase()) {
-            path.push(';');
+            path.push(sep);
             path.push_str(&e);
         }
     }
@@ -699,20 +815,56 @@ async fn clipboard_image_to_temp() -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .as_millis();
     let path = dir.join(format!("paste-{stamp}.png"));
-    // PowerShell single-quote escaping ('' inside '…'): %TEMP% contains the
-    // username, and Windows allows ' in usernames — an unescaped quote both
-    // breaks the script and is a string-injection point.
-    let ps_path = path.display().to_string().replace('\'', "''");
-    let script =
-        format!("$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{ps_path}') }}");
-    let mut c = std::process::Command::new("powershell.exe");
-    c.args(["-NoProfile", "-Command", &script]);
     #[cfg(target_os = "windows")]
     {
+        // PowerShell single-quote escaping ('' inside '…'): %TEMP% contains
+        // the username, and Windows allows ' in usernames — an unescaped
+        // quote both breaks the script and is a string-injection point.
+        let ps_path = path.display().to_string().replace('\'', "''");
+        let script =
+            format!("$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{ps_path}') }}");
+        let mut c = std::process::Command::new("powershell.exe");
+        c.args(["-NoProfile", "-Command", &script]);
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        let _ = c.output();
     }
-    let _ = c.output();
+    #[cfg(target_os = "macos")]
+    {
+        // AppleScript writes the clipboard PNG straight to the file; no
+        // external tools (pngpaste) required.
+        let script = format!(
+            "try\n\
+             set f to open for access POSIX file \"{}\" with write permission\n\
+             write (the clipboard as «class PNGf») to f\n\
+             close access f\n\
+             end try",
+            path.display().to_string().replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Wayland first, then X11; each tool exits nonzero when the
+        // clipboard has no image, leaving the file absent.
+        let quoted = sh_squote(&path.display().to_string());
+        for cmd in [
+            format!("wl-paste -t image/png > {quoted}"),
+            format!("xclip -selection clipboard -t image/png -o > {quoted}"),
+        ] {
+            let ok = std::process::Command::new("/bin/sh")
+                .args(["-c", &cmd])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if ok && path.exists() {
+                break;
+            }
+            let _ = std::fs::remove_file(&path);
+        }
+    }
     if path.exists() {
         Ok(path.to_string_lossy().to_string())
     } else {
@@ -730,8 +882,15 @@ struct DirEntry {
 /// completion). Returns entries with the fragment's directory part prefixed.
 #[tauri::command]
 async fn list_dir(base: String, prefix: String) -> Vec<DirEntry> {
-    let frag = prefix.replace('/', "\\");
-    let (sub, pre) = match frag.rfind('\\') {
+    // Fragments arrive with '/' from the palette; only Windows needs them
+    // mapped to the native separator for the filesystem join.
+    let native_sep = if cfg!(target_os = "windows") { '\\' } else { '/' };
+    let frag = if cfg!(target_os = "windows") {
+        prefix.replace('/', "\\")
+    } else {
+        prefix
+    };
+    let (sub, pre) = match frag.rfind(native_sep) {
         Some(i) => (&frag[..i + 1], &frag[i + 1..]),
         None => ("", frag.as_str()),
     };
@@ -757,15 +916,14 @@ async fn list_dir(base: String, prefix: String) -> Vec<DirEntry> {
 }
 
 /// Expand a leading `~` (agents print paths this way) to the user's home
-/// directory; Windows has no shell to do this for us.
+/// directory; these paths come from terminal output, not a shell, so no
+/// shell ever expands them for us.
 fn expand_tilde(path: &str) -> String {
     match path.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with(['\\', '/']) => {
-            match std::env::var("USERPROFILE") {
-                Ok(home) => format!("{home}{rest}"),
-                Err(_) => path.to_string(),
-            }
-        }
+        Some(rest) if rest.is_empty() || rest.starts_with(['\\', '/']) => match home_dir_env() {
+            Some(home) => format!("{home}{rest}"),
+            None => path.to_string(),
+        },
         _ => path.to_string(),
     }
 }
@@ -890,23 +1048,101 @@ async fn git_status(cwd: String) -> Option<GitStatus> {
     })
 }
 
-/// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe).
+/// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe
+/// on Windows; `command -v` in a login shell elsewhere).
 #[tauri::command]
 async fn detect_clis(names: Vec<String>) -> Vec<bool> {
     names
         .iter()
         .map(|n| {
-            let mut c = std::process::Command::new("where.exe");
-            c.arg(n);
-            c.env("PATH", augmented_path());
             #[cfg(target_os = "windows")]
-            {
+            let mut c = {
+                let mut c = std::process::Command::new("where.exe");
+                c.arg(n);
                 use std::os::windows::process::CommandExt;
                 c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            }
+                c
+            };
+            #[cfg(not(target_os = "windows"))]
+            let mut c = {
+                let mut c = std::process::Command::new("/bin/sh");
+                c.args(["-lc", &format!("command -v {}", sh_squote(n))]);
+                c
+            };
+            c.env("PATH", augmented_path());
             c.output().map(|o| o.status.success()).unwrap_or(false)
         })
         .collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformInfo {
+    os: &'static str,
+    /// Whether voice announcements can work here (Linux needs spd-say).
+    tts_available: bool,
+}
+
+/// Static platform facts the frontend adapts to (labels, hidden toggles,
+/// TTS routing). Queried once at startup.
+#[tauri::command]
+fn platform_info() -> PlatformInfo {
+    #[cfg(target_os = "linux")]
+    let tts_available = std::process::Command::new("spd-say")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    // Windows speaks through WebView2's speechSynthesis; macOS ships `say`.
+    #[cfg(not(target_os = "linux"))]
+    let tts_available = true;
+    PlatformInfo {
+        os: std::env::consts::OS,
+        tts_available,
+    }
+}
+
+/// Speak `text` through the OS voice engine (macOS `say`, Linux `spd-say`).
+/// Windows never calls this — the webview's speechSynthesis handles it.
+#[tauri::command]
+fn speak_text(text: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = text;
+        Err("Windows uses the webview speechSynthesis path".into())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("say")
+            .arg("--")
+            .arg(&text)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("spd-say")
+            .arg("--")
+            .arg(&text)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = text;
+        Err("TTS is not supported on this platform".into())
+    }
+}
+
+/// Hotkey suffix for tray menu items: Alt is the Option key on macOS.
+fn hotkey_label(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("⌥{key}")
+    } else {
+        format!("Alt+{key}")
+    }
 }
 
 /// True when the foreground window is a fullscreen/borderless app that is
@@ -966,7 +1202,124 @@ fn game_foreground() -> bool {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+/// macOS: the CGWindowList is ordered front-to-back; the first layer-0
+/// entry is the window the user is looking at. It counts as a fullscreen
+/// game when it isn't ours and exactly covers some display.
+#[cfg(target_os = "macos")]
+fn game_foreground() -> bool {
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::display::CGDisplay;
+    use core_graphics::geometry::CGRect;
+    use core_graphics::window::{
+        copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionOnScreenOnly,
+    };
+
+    let Some(windows) = copy_window_info(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    ) else {
+        return false;
+    };
+    // The CGWindow dictionary keys are documented literal strings equal to
+    // their constant names.
+    let layer_key = CFString::from_static_string("kCGWindowLayer");
+    let pid_key = CFString::from_static_string("kCGWindowOwnerPID");
+    let bounds_key = CFString::from_static_string("kCGWindowBounds");
+    for item in windows.iter() {
+        let dict =
+            unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(*item as CFDictionaryRef) };
+        let int = |key: &CFString| -> Option<i64> {
+            dict.find(key)
+                .and_then(|v| v.downcast::<CFNumber>())
+                .and_then(|n| n.to_i64())
+        };
+        if int(&layer_key) != Some(0) {
+            continue;
+        }
+        // Our own overlay having focus is not "in a match" — same contract
+        // as the Windows GetForegroundWindow pid check.
+        if int(&pid_key) == Some(std::process::id() as i64) {
+            return false;
+        }
+        let Some(rect) = dict
+            .find(&bounds_key)
+            .and_then(|v| v.downcast::<CFDictionary>())
+            .and_then(|b| CGRect::from_dict_representation(&b))
+        else {
+            return false;
+        };
+        return CGDisplay::active_displays()
+            .unwrap_or_default()
+            .into_iter()
+            .any(|id| {
+                let b = CGDisplay::new(id).bounds();
+                rect.origin.x <= b.origin.x
+                    && rect.origin.y <= b.origin.y
+                    && rect.origin.x + rect.size.width >= b.origin.x + b.size.width
+                    && rect.origin.y + rect.size.height >= b.origin.y + b.size.height
+            });
+    }
+    false
+}
+
+/// Linux: X11 only — ask the window manager (EWMH) whether the active
+/// window is fullscreen. On Wayland (or a non-EWMH WM) the connection or
+/// the atoms are missing and this stays false: do-not-disturb then only
+/// works via the manual Alt+N toggle (documented limitation).
+#[cfg(target_os = "linux")]
+fn game_foreground() -> bool {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+    let Ok((conn, screen_num)) = x11rb::connect(None) else {
+        return false;
+    };
+    let root = conn.setup().roots[screen_num].root;
+    let atom = |name: &str| {
+        conn.intern_atom(true, name.as_bytes())
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .map(|r| r.atom)
+            .filter(|a| *a != x11rb::NONE)
+    };
+    let (Some(net_active), Some(net_state), Some(net_fullscreen)) = (
+        atom("_NET_ACTIVE_WINDOW"),
+        atom("_NET_WM_STATE"),
+        atom("_NET_WM_STATE_FULLSCREEN"),
+    ) else {
+        return false;
+    };
+    let active = conn
+        .get_property(false, root, net_active, AtomEnum::WINDOW, 0, 1)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .and_then(|r| r.value32().and_then(|mut v| v.next()));
+    let Some(active) = active.filter(|w| *w != 0) else {
+        return false;
+    };
+    // Our own window having focus is not "in a match".
+    if let Some(net_pid) = atom("_NET_WM_PID") {
+        let pid = conn
+            .get_property(false, active, net_pid, AtomEnum::CARDINAL, 0, 1)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .and_then(|r| r.value32().and_then(|mut v| v.next()));
+        if pid == Some(std::process::id()) {
+            return false;
+        }
+    }
+    conn.get_property(false, active, net_state, AtomEnum::ATOM, 0, 32)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .and_then(|r| r.value32().map(|v| v.into_iter().any(|a| a == net_fullscreen)))
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn game_foreground() -> bool {
     false
 }
@@ -1124,21 +1477,21 @@ fn set_tray_labels(app: AppHandle, toggle: String, ghost: String, palette: Strin
             let m_toggle = MenuItem::with_id(
                 &handle,
                 "toggle",
-                format!("{toggle}\tAlt+X"),
+                format!("{toggle}\t{}", hotkey_label("X")),
                 true,
                 None::<&str>,
             )?;
             let m_ghost = MenuItem::with_id(
                 &handle,
                 "ghost",
-                format!("{ghost}\tAlt+G"),
+                format!("{ghost}\t{}", hotkey_label("G")),
                 true,
                 None::<&str>,
             )?;
             let m_palette = MenuItem::with_id(
                 &handle,
                 "palette",
-                format!("{palette}\tAlt+P"),
+                format!("{palette}\t{}", hotkey_label("P")),
                 true,
                 None::<&str>,
             )?;
@@ -1249,7 +1602,9 @@ pub fn run() {
             read_text_file,
             read_image_data_url,
             git_status,
-            install_update
+            install_update,
+            platform_info,
+            speak_text
         ])
         .setup(|app| {
             // Update check only — installing is gated on user consent
@@ -1343,12 +1698,27 @@ pub fn run() {
                 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-                let m_toggle =
-                    MenuItem::with_id(app, "toggle", "Show / Hide\tAlt+X", true, None::<&str>)?;
-                let m_ghost =
-                    MenuItem::with_id(app, "ghost", "Ghost mode\tAlt+G", true, None::<&str>)?;
-                let m_palette =
-                    MenuItem::with_id(app, "palette", "Prompt palette\tAlt+P", true, None::<&str>)?;
+                let m_toggle = MenuItem::with_id(
+                    app,
+                    "toggle",
+                    format!("Show / Hide\t{}", hotkey_label("X")),
+                    true,
+                    None::<&str>,
+                )?;
+                let m_ghost = MenuItem::with_id(
+                    app,
+                    "ghost",
+                    format!("Ghost mode\t{}", hotkey_label("G")),
+                    true,
+                    None::<&str>,
+                )?;
+                let m_palette = MenuItem::with_id(
+                    app,
+                    "palette",
+                    format!("Prompt palette\t{}", hotkey_label("P")),
+                    true,
+                    None::<&str>,
+                )?;
                 let m_quit = MenuItem::with_id(app, "quit", "Quit AFKode", true, None::<&str>)?;
                 let sep = PredefinedMenuItem::separator(app)?;
                 let menu =
@@ -1356,7 +1726,7 @@ pub fn run() {
 
                 TrayIconBuilder::with_id("afkode-tray")
                     .icon(app.default_window_icon().unwrap().clone())
-                    .tooltip("AFKode — Alt+X")
+                    .tooltip(format!("AFKode — {}", hotkey_label("X")))
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {

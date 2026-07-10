@@ -2,7 +2,7 @@
 
 **Your AI codes while you play.** An in-game overlay to supervise AI coding agents (Claude Code, OpenCode, Codex) — or any terminal — without leaving your game.
 
-Built with **Tauri 2** (Rust + WebView2) and **xterm.js with the WebGL renderer** — instant startup, minimal RAM, and near-zero FPS impact. The installer is ~2 MB.
+Built with **Tauri 2** (Rust + the OS webview) and **xterm.js with the WebGL renderer** — instant startup, minimal RAM, and near-zero FPS impact. The Windows installer is ~2 MB. Runs on **Windows, macOS and Linux** (see the [feature support matrix](#platform-support)).
 
 ## Global hotkeys
 
@@ -13,6 +13,8 @@ Built with **Tauri 2** (Rust + WebView2) and **xterm.js with the WebGL renderer*
 | `Alt + P` / `Ctrl + Alt + P` | Prompt palette: type a task, it goes to the active agent |
 | `Alt + A` | Approve: answer "yes" to the agent waiting for permission, without opening the overlay |
 | `Alt + N` | Toggle do-not-disturb manually (lobbies are fullscreen too); auto-resets when the game closes |
+
+On macOS, `Alt` is the **Option (⌥)** key: the shortcuts are `⌥X`, `⌥G`, `⌥P` / `⌃⌥P`, `⌥A`, `⌥N`.
 
 ## Features
 
@@ -32,11 +34,35 @@ Built with **Tauri 2** (Rust + WebView2) and **xterm.js with the WebGL renderer*
 - **Memory saver**: hiding the overlay trims the host working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
 - **Folder picker**: sessions start in a project folder chosen via the native Windows dialog.
 - **CLI detection**: launchers detect which agents are installed; missing ones install with one click (`npm install -g …` in a tab).
-- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` searches open sessions.
+- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell — your login shell on macOS/Linux) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` searches open sessions.
 - **Git footer**: branch, `+added/-removed` diff stat and dirty indicator for the active session's folder, Warp-style.
 - **Real terminal (ConPTY)**: truecolor, interactive apps, GPU-rendered. Copy-on-select, `Ctrl+Shift+C/V`, right-click copy/paste (inside TUIs, select with `Shift+drag`).
 - **Customization**: 9 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Dark, Monokai), font family/size, English/Spanish UI, background opacity slider.
 - **Window memory**: position and size are restored across sessions.
+
+## Platform support
+
+AFKode is Windows-first; macOS and Linux builds ship from the same codebase with per-OS implementations. Anything degraded or unavailable is listed here — no silent gaps.
+
+| Feature | Windows | macOS | Linux |
+|---|---|---|---|
+| Terminal (PTY), tabs, themes, palette, search | ✅ ConPTY | ✅ | ✅ |
+| Shell tab | PowerShell | login shell (`$SHELL`, fallback zsh) | login shell (`$SHELL`, fallback bash) |
+| Claude Code hooks integration (HUD, `Alt+A`, summary) | ✅ | ✅ (needs `curl`, preinstalled) | ✅ (needs `curl`) |
+| Global hotkeys | ✅ `Alt+…` | ✅ `⌥…` (Option) | ✅ `Alt+…` (X11; compositor-dependent on Wayland) |
+| Auto do-not-disturb (fullscreen game detection) | ✅ Win32 | ✅ CGWindowList | ✅ X11 (EWMH) · ❌ Wayland — use manual `Alt+N` |
+| Voice announcements (TTS) | ✅ WebView2 speech | ✅ `say` | ⚠️ `spd-say` (speech-dispatcher); toggle hidden if missing |
+| Notifications | ✅ toasts | ✅ (allow in System Settings) | ✅ (libnotify) |
+| Memory saver on hide (working-set trim + low-memory webview) | ✅ | ❌ automatic no-op | ❌ automatic no-op |
+| Setup wizard Node.js install | ✅ winget | ⚠️ Homebrew if present | ⚠️ apt/dnf (needs sudo password in the tab) |
+| Clipboard image paste to agent | ✅ | ✅ AppleScript | ⚠️ needs `wl-paste` or `xclip` |
+| Tray icon | ✅ | ✅ menu bar | ✅ (needs an appindicator-capable desktop) |
+| Auto-updater (signed artifacts) | ✅ NSIS | ✅ .dmg/.app | ✅ AppImage only (deb/rpm update via package manager) |
+| Overlay transparency / always-on-top | ✅ | ✅ | ⚠️ X11 yes; Wayland depends on the compositor |
+
+Notes:
+- **Wayland**: fullscreen-game detection is out of scope (no protocol for inspecting foreign windows); DND works via the manual `Alt+N` toggle. Under XWayland-capable setups the X11 path may still work.
+- macOS/Linux builds are CI-verified (build + `cargo check`/tests per OS); day-to-day development happens on Windows, so treat non-Windows paths as less battle-tested and report issues.
 
 ## Development
 
@@ -45,17 +71,23 @@ npm install
 npm run tauri dev
 ```
 
+On Linux you need the Tauri 2 system packages first: `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf`.
+
 ## Production build
 
 ```powershell
 npm run tauri build
 ```
 
-Installers land in `src-tauri/target/release/bundle/` (NSIS `.exe` and MSI).
+Installers land in `src-tauri/target/release/bundle/` — NSIS `.exe` + MSI on Windows, `.dmg` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux. CI builds all of them from a 3-OS matrix on every `v*` tag.
 
 ## Install
 
-Grab the latest installer from [Releases](https://github.com/ohernandezdev/afkode/releases). AFKode checks for updates on startup and installs them in the background (signed updater artifacts); restart to apply.
+- **Windows**: grab the NSIS installer from [Releases](https://github.com/ohernandezdev/afkode/releases) (or `winget install OmarHernandez.AFKode`).
+- **macOS**: download the `.dmg` from Releases and drag AFKode to Applications. The build is unsigned/un-notarized for now: right-click → Open on first launch (or `xattr -dr com.apple.quarantine /Applications/AFKode.app`).
+- **Linux**: download the `.AppImage` (self-updating) or the `.deb`/`.rpm` from Releases.
+
+AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts); restart to apply.
 
 ## Pending for public distribution
 
