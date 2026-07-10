@@ -967,6 +967,34 @@ fn npm_prefix() -> Option<String> {
     Some(prefix)
 }
 
+/// nvm installs live under ~/.nvm/versions/node/<version>/bin and are only
+/// wired into PATH by the shell rc file — invisible to a Finder/launchd
+/// launched GUI app (and to `detect_clis`, which runs a non-interactive
+/// shell). Pick the newest installed version, matching what a fresh
+/// `nvm use default` would most commonly resolve.
+#[cfg(not(target_os = "windows"))]
+fn newest_nvm_bin(home: &str) -> Option<String> {
+    let dir = std::path::Path::new(home).join(".nvm/versions/node");
+    let parse = |name: &str| -> Option<(u64, u64, u64)> {
+        let mut it = name.strip_prefix('v')?.split('.');
+        Some((
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+            it.next()?.parse().ok()?,
+        ))
+    };
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            parse(&name).map(|v| (v, e.path().join("bin")))
+        })
+        .filter(|(_, p)| p.is_dir())
+        .max_by_key(|(v, _)| *v)
+        .map(|(_, p)| p.to_string_lossy().to_string())
+}
+
 /// PATH plus tool locations that may have been installed after this process
 /// started (Node.js, npm global bin) — lets the setup wizard work without an
 /// app restart.
@@ -991,6 +1019,9 @@ fn augmented_path() -> String {
         if let Some(home) = home_dir_env() {
             extras.push(format!("{home}/.npm-global/bin"));
             extras.push(format!("{home}/.local/bin"));
+            if let Some(nvm_bin) = newest_nvm_bin(&home) {
+                extras.push(nvm_bin);
+            }
         }
         if let Some(prefix) = npm_prefix() {
             // Unlike Windows, npm's global bin lives under <prefix>/bin.
