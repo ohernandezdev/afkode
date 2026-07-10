@@ -22,6 +22,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { CommandBlocks } from "./blocks";
 
 // ── Themes ────────────────────────────────────────────────
 
@@ -601,6 +602,7 @@ interface Session {
   term: Terminal;
   fit: FitAddon;
   search: SearchAddon;
+  blocks: CommandBlocks;
   pane: HTMLElement;
   tab: HTMLElement;
   alive: boolean;
@@ -742,6 +744,7 @@ function closeSession(id: string) {
     wizardRefresh();
   }
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
+  s.blocks.dispose();
   s.term.dispose();
   s.pane.remove();
   s.tab.remove();
@@ -894,6 +897,15 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   } catch {
     /* addon/version mismatch: default width tables still work */
   }
+  // OSC 133 command blocks (see blocks.ts) — inert until the shell emits
+  // the first sequence, so agent TUIs and non-integrated shells see zero
+  // behavior change.
+  const blocks = new CommandBlocks(
+    term,
+    pane,
+    (data) => invoke("write_pty", { id, data }).catch(() => {}),
+    (text) => clipWrite(text).catch(() => {}),
+  );
   term.open(pane);
   try {
     term.loadAddon(new WebglAddon());
@@ -986,7 +998,19 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
       ev.preventDefault();
       const sel = term.getSelection();
       if (sel) clipWrite(sel).catch(() => {});
+      // No text selection but a block is selected: copy its output.
+      else blocks.copySelectedOutput();
       return false;
+    }
+    // Block navigation — Cmd on macOS, Ctrl elsewhere. Only consumed once
+    // OSC 133 has been seen, so TUIs keep their own Ctrl+arrow bindings.
+    const blockMod = platform.os === "macos" ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey;
+    if (blockMod && !ev.shiftKey && !ev.altKey && (ev.code === "ArrowUp" || ev.code === "ArrowDown")) {
+      if (blocks.active() && blocks.navigate(ev.code === "ArrowUp" ? -1 : 1)) {
+        ev.preventDefault();
+        return false;
+      }
+      return true;
     }
     // Without this, xterm sends the literal ^K (0x0B) byte to the shell —
     // in readline/PSReadLine that's "kill to end of line," silently
@@ -1028,6 +1052,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     term,
     fit,
     search,
+    blocks,
     pane,
     tab,
     alive: true,

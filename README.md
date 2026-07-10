@@ -30,6 +30,7 @@ On macOS, `Alt` is the **Option (⌥)** key: the shortcuts are `⌥X`, `⌥G`, `
 - **Quick reply**: the HUD pill grows a ↩ button when an agent waits — the palette opens pre-targeted at the asking session with a context line.
 - **Voice announcements (TTS)**: optional copilot-style voice over game audio; immune to Windows fullscreen toast suppression.
 - **Agent-aware notifications**: if the overlay is hidden and your agent finishes or gets stuck waiting for input (permission prompt, `y/n`, ANSI bell), you get a Windows toast + optional beep.
+- **Command blocks (Warp-style)**: shell tabs group each command + its output into a block via OSC 133 shell integration (injected at spawn — your profile files are never edited). Colored gutter bar per block (green ✓ / red ✗ by exit status), hover toolbar (copy command / output / both, re-run), `Ctrl+↑/↓` (`Cmd` on macOS) jumps between blocks, and `Ctrl+Shift+C` with a block selected copies its output. Automatic for PowerShell (Windows), bash (Linux) and zsh; other shells can [opt in manually](#command-blocks-in-other-shells). Agent TUI tabs are unaffected.
 - **Search** (`Ctrl+F`), **Unicode 11** cell widths, and **drag & drop** of files/folders (path pasted into the active session).
 - **Memory saver**: hiding the overlay trims the host working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
 - **Folder picker**: sessions start in a project folder chosen via the native Windows dialog.
@@ -63,6 +64,28 @@ AFKode is Windows-first; macOS and Linux builds ship from the same codebase with
 Notes:
 - **Wayland**: fullscreen-game detection is out of scope (no protocol for inspecting foreign windows); DND works via the manual `Alt+N` toggle. Under XWayland-capable setups the X11 path may still work.
 - macOS/Linux builds are CI-verified (build + `cargo check`/tests per OS); day-to-day development happens on Windows, so treat non-Windows paths as less battle-tested and report issues.
+
+### Command blocks in other shells
+
+Command blocks activate automatically for PowerShell (Windows), bash (Linux) and zsh (macOS/Linux). Any other shell works too if it emits [OSC 133](https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md) sequences — add the equivalent of this to its config (fish ≥ 3.6 example, `~/.config/fish/config.fish`):
+
+```fish
+function __afk_prompt_start --on-event fish_prompt
+    printf '\e]133;D;%s\e\\' $status
+    printf '\e]133;A\e\\'
+end
+function __afk_preexec --on-event fish_preexec
+    printf '\e]133;C\e\\'
+end
+# B (input start) at the end of your prompt:
+functions --copy fish_prompt __afk_orig_prompt
+function fish_prompt
+    __afk_orig_prompt
+    printf '\e]133;B\e\\'
+end
+```
+
+Notes: bash integration is injected via `--rcfile`, which bash ignores for login shells (`-l`), so a bash login shell on macOS gets no blocks — zsh (the macOS default) is fully supported. If your `.bashrc` already sets a `PROMPT_COMMAND`, it is preserved (AFKode prepends its hook).
 
 ## Development
 
@@ -98,9 +121,18 @@ AFKode checks for updates on startup and installs them after you confirm (signed
 - Works over games in **windowed or borderless** mode (like Discord/Overwolf without injection). In *exclusive fullscreen* the game covers the overlay.
 - Hotkeys are defined in `src-tauri/src/lib.rs` (`TOGGLE_SHORTCUT`, `GHOST_SHORTCUT`, …). `Alt+Z` is typically taken by the NVIDIA overlay, which is why ghost mode uses `Alt+G`.
 
+## What's next
+
+The feature roadmap lives in [ROADMAP-FEATURES.md](ROADMAP-FEATURES.md) — 12 Warp-inspired features planned across v0.8–v1.1, each with a description, state-of-the-art references, an implementation plan, and a ready-to-paste `/goal` prompt for an AI coding agent:
+
+- **v0.8 — Terminal IQ**: Command Blocks (OSC 133), Command Palette (`>` actions), AI Command Search (`#` → command via local Claude Code), Session Restore.
+- **v0.9 — Trust & Approvals**: Diff preview before approving Edits, risk-graded approvals (🟢/🟡/🔴), per-session cost & token telemetry.
+- **v1.0 — Fleet & Chat**: Chat View over agent transcripts, fleet mini-dashboard on the HUD, remote approvals from Telegram.
+- **v1.1 — Gamer Distribution**: Discord Rich Presence + shareable session cards, edge-docked peek mode & per-game HUD profiles.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Roadmap and product thesis: [ROADMAP.md](ROADMAP.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Product thesis: [ROADMAP.md](ROADMAP.md) · Feature roadmap: [ROADMAP-FEATURES.md](ROADMAP-FEATURES.md).
 
 ## License
 

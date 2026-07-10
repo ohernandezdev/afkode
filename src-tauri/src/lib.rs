@@ -328,6 +328,145 @@ fn login_shell() -> String {
         })
 }
 
+// ── OSC 133 shell integration (command blocks) ─────────────
+//
+// Plain interactive shell tabs get hooks injected at spawn time — never by
+// editing the user's profile files — that emit the OSC 133 sequences
+// (A prompt-start, B input-start, C pre-exec, D;exit command-end) the
+// frontend's block model consumes (src/blocks.ts). Agent tabs and
+// arbitrary-command tabs are untouched; the frontend stays inert until it
+// sees the first sequence, so non-integrated shells behave exactly as
+// before.
+
+/// PowerShell bootstrap: wraps — never replaces — whatever `prompt`
+/// function the profile defined. PowerShell has no pre-exec hook, so C is
+/// never emitted; the frontend reads the command line from the buffer at D.
+#[cfg(target_os = "windows")]
+const PS_SHELL_INTEGRATION: &str = r#"
+$global:__afkPrompt = $function:prompt
+$global:__afkRan = $false
+function global:prompt {
+  $__ok = $?
+  $__ec = if ($__ok) { 0 } elseif ($global:LASTEXITCODE -is [int] -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }
+  $__e = [char]27
+  if ($global:__afkRan) { [Console]::Write("$__e]133;D;$__ec$__e\") }
+  $global:__afkRan = $true
+  [Console]::Write("$__e]133;A$__e\")
+  "$(& $global:__afkPrompt)$__e]133;B$__e\"
+}
+"#;
+
+/// Encode a script for `powershell -EncodedCommand` (base64 of UTF-16LE):
+/// dodges every layer of argv/cmd quoting corruption at once.
+#[cfg(target_os = "windows")]
+fn ps_encode(script: &str) -> String {
+    use base64::Engine;
+    let utf16: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+    base64::engine::general_purpose::STANDARD.encode(utf16)
+}
+
+/// bash bootstrap, loaded via `bash --rcfile`: sources the user's real
+/// ~/.bashrc first, then layers the hooks on top. PROMPT_COMMAND is
+/// prepended (D must see the real $?) with the user's entries preserved;
+/// B/C ride PS1/PS0 (bash ≥ 4.4), re-appended each prompt in case the
+/// user's own PROMPT_COMMAND rewrites them (git-prompt style).
+#[cfg(not(target_os = "windows"))]
+const BASH_SHELL_INTEGRATION: &str = r#"# AFKode shell integration: OSC 133 command blocks.
+[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+
+__afk_ran=""
+__afk_prompt() {
+  local ec=$?
+  [ -n "$__afk_ran" ] && printf '\033]133;D;%s\033\\' "$ec"
+  __afk_ran=1
+  printf '\033]133;A\033\\'
+  return $ec
+}
+__afk_mark_input() {
+  case "$PS1" in
+    *']133;B'*) ;;
+    *) PS1="$PS1"'\[\e]133;B\e\\\]' ;;
+  esac
+  case "$PS0" in
+    *']133;C'*) ;;
+    *) PS0='\e]133;C\e\\'"$PS0" ;;
+  esac
+}
+if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+  PROMPT_COMMAND=(__afk_prompt "${PROMPT_COMMAND[@]}" __afk_mark_input)
+else
+  PROMPT_COMMAND="__afk_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND};__afk_mark_input"
+fi
+"#;
+
+/// zsh bootstrap via the ZDOTDIR indirection (the same trick VS Code and
+/// kitty use): ZDOTDIR points at a directory whose startup files source
+/// the user's own files — with ZDOTDIR restored so paths inside them
+/// resolve — then install precmd/preexec hooks with add-zsh-hook.
+#[cfg(not(target_os = "windows"))]
+const ZSH_ZSHENV: &str = r#"# AFKode shell integration bootstrap.
+if [ -f "$AFKODE_USER_ZDOTDIR/.zshenv" ]; then
+  __afk_zd="$ZDOTDIR"
+  ZDOTDIR="$AFKODE_USER_ZDOTDIR"
+  . "$AFKODE_USER_ZDOTDIR/.zshenv"
+  [ "$ZDOTDIR" = "$AFKODE_USER_ZDOTDIR" ] && ZDOTDIR="$__afk_zd"
+  unset __afk_zd
+fi
+"#;
+
+#[cfg(not(target_os = "windows"))]
+const ZSH_ZPROFILE: &str = r#"if [ -f "$AFKODE_USER_ZDOTDIR/.zprofile" ]; then
+  __afk_zd="$ZDOTDIR"
+  ZDOTDIR="$AFKODE_USER_ZDOTDIR"
+  . "$AFKODE_USER_ZDOTDIR/.zprofile"
+  [ "$ZDOTDIR" = "$AFKODE_USER_ZDOTDIR" ] && ZDOTDIR="$__afk_zd"
+  unset __afk_zd
+fi
+"#;
+
+#[cfg(not(target_os = "windows"))]
+const ZSH_ZSHRC: &str = r#"# AFKode shell integration: OSC 133 command blocks.
+# ZDOTDIR is handed back to the user's value permanently here, so the rest
+# of startup (.zlogin) and the running session read their own files.
+ZDOTDIR="$AFKODE_USER_ZDOTDIR"
+[ -f "$ZDOTDIR/.zshrc" ] && . "$ZDOTDIR/.zshrc"
+
+autoload -Uz add-zsh-hook
+__afk_ran=""
+__afk_b_mark="%{$(printf '\033]133;B\033\\')%}"
+__afk_precmd() {
+  local ec=$?
+  [ -n "$__afk_ran" ] && printf '\033]133;D;%s\033\\' "$ec"
+  __afk_ran=1
+  printf '\033]133;A\033\\'
+  case "$PS1" in
+    *"$__afk_b_mark") ;;
+    *) PS1="$PS1$__afk_b_mark" ;;
+  esac
+}
+__afk_preexec() { printf '\033]133;C\033\\'; }
+add-zsh-hook precmd __afk_precmd
+add-zsh-hook preexec __afk_preexec
+"#;
+
+/// Write the integration files under the OS temp dir (idempotent, cheap —
+/// rewritten on every spawn so upgrades never serve stale scripts).
+/// Returns the directory, or None if the filesystem said no.
+#[cfg(not(target_os = "windows"))]
+fn write_shell_integration() -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("afkode-shell-integration");
+    let zdot = dir.join("zdotdir");
+    std::fs::create_dir_all(&zdot).ok()?;
+    std::fs::write(dir.join("bash-init.sh"), BASH_SHELL_INTEGRATION).ok()?;
+    std::fs::write(zdot.join(".zshenv"), ZSH_ZSHENV).ok()?;
+    std::fs::write(zdot.join(".zprofile"), ZSH_ZPROFILE).ok()?;
+    std::fs::write(zdot.join(".zshrc"), ZSH_ZSHRC).ok()?;
+    Some(dir)
+}
+
 /// Home directory env var, per OS (Windows has no HOME).
 fn home_dir_env() -> Option<String> {
     if cfg!(target_os = "windows") {
@@ -395,6 +534,58 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn ps_shell_integration_wraps_prompt_and_emits_osc133() {
+        // Wraps, not replaces: the original prompt must be captured and
+        // invoked, and all three sequences PowerShell can emit are present
+        // (no C — PowerShell has no pre-exec hook).
+        assert!(PS_SHELL_INTEGRATION.contains("$function:prompt"));
+        assert!(PS_SHELL_INTEGRATION.contains("& $global:__afkPrompt"));
+        for seq in ["]133;A", "]133;B", "]133;D;"] {
+            assert!(PS_SHELL_INTEGRATION.contains(seq), "missing {seq}");
+        }
+        assert!(!PS_SHELL_INTEGRATION.contains("]133;C"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn ps_encode_roundtrips_utf16le_base64() {
+        use base64::Engine;
+        let enc = ps_encode("prompt");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(enc)
+            .unwrap();
+        let utf16: Vec<u16> = bytes
+            .chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(String::from_utf16(&utf16).unwrap(), "prompt");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn posix_shell_integration_emits_osc133_and_preserves_user_config() {
+        // bash: user rc sourced first, PROMPT_COMMAND entries preserved,
+        // all four sequences emitted.
+        assert!(BASH_SHELL_INTEGRATION.contains(r#". "$HOME/.bashrc""#));
+        assert!(BASH_SHELL_INTEGRATION.contains(r#""${PROMPT_COMMAND[@]}""#));
+        for seq in ["]133;A", "]133;B", "]133;C", "]133;D;"] {
+            assert!(BASH_SHELL_INTEGRATION.contains(seq), "bash missing {seq}");
+        }
+        // zsh: hooks added via add-zsh-hook (never clobbering precmd), user
+        // files sourced with ZDOTDIR restored.
+        assert!(ZSH_ZSHRC.contains("add-zsh-hook precmd"));
+        assert!(ZSH_ZSHRC.contains("add-zsh-hook preexec"));
+        assert!(ZSH_ZSHRC.contains(r#". "$ZDOTDIR/.zshrc""#));
+        for (name, f) in [(".zshenv", ZSH_ZSHENV), (".zprofile", ZSH_ZPROFILE)] {
+            assert!(f.contains("AFKODE_USER_ZDOTDIR"), "{name} misses user dir");
+        }
+        for seq in ["]133;A", "]133;B", "]133;C", "]133;D;"] {
+            assert!(ZSH_ZSHRC.contains(seq), "zsh missing {seq}");
+        }
+    }
+
     #[test]
     fn expand_tilde_variants() {
         let home = home_dir_env().unwrap();
@@ -454,8 +645,16 @@ async fn spawn_pty(
     let trimmed = cmd.trim();
     #[cfg(target_os = "windows")]
     let mut builder = if trimmed.is_empty() {
+        // Interactive shell: the profile loads first (no -NoProfile), then
+        // the bootstrap wraps whatever prompt it defined with OSC 133
+        // emission for command blocks.
         let mut b = CommandBuilder::new("powershell.exe");
-        b.args(["-NoLogo"]);
+        b.args([
+            "-NoLogo",
+            "-NoExit",
+            "-EncodedCommand",
+            &ps_encode(PS_SHELL_INTEGRATION),
+        ]);
         b
     } else if trimmed == "claude" || trimmed.starts_with("claude ") {
         // Run the agent inside a persistent PowerShell (-NoExit) so the tab
@@ -484,14 +683,8 @@ async fn spawn_pty(
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        use base64::Engine;
-        let utf16: Vec<u8> = script
-            .encode_utf16()
-            .flat_map(|u| u.to_le_bytes())
-            .collect();
-        let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
         let mut b = CommandBuilder::new("powershell.exe");
-        b.args(["-NoLogo", "-NoExit", "-EncodedCommand", &encoded]);
+        b.args(["-NoLogo", "-NoExit", "-EncodedCommand", &ps_encode(&script)]);
         b
     } else if trimmed.contains('"') {
         // Pass the raw line through an env var that cmd expands itself:
@@ -522,7 +715,36 @@ async fn spawn_pty(
             b.arg("-l");
         }
         if trimmed.is_empty() {
-            // No args: interactive shell (stdin is the PTY).
+            // No args: interactive shell (stdin is the PTY), with OSC 133
+            // shell integration for command blocks where the shell allows
+            // spawn-time injection. bash -l (macOS) ignores --rcfile, so a
+            // bash-on-macOS login shell simply gets no blocks.
+            let shell_name = std::path::Path::new(&shell)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            match shell_name {
+                "bash" if !cfg!(target_os = "macos") => {
+                    if let Some(dir) = write_shell_integration() {
+                        b.arg("--rcfile");
+                        b.arg(dir.join("bash-init.sh"));
+                    }
+                }
+                "zsh" => {
+                    if let Some(dir) = write_shell_integration() {
+                        let user_zdot = std::env::var("ZDOTDIR")
+                            .ok()
+                            .filter(|s| !s.trim().is_empty())
+                            .or_else(home_dir_env);
+                        if let Some(uz) = user_zdot {
+                            b.env("AFKODE_USER_ZDOTDIR", uz);
+                            b.env("ZDOTDIR", dir.join("zdotdir"));
+                        }
+                    }
+                }
+                // fish and friends: documented opt-in snippet, no automation.
+                _ => {}
+            }
             b
         } else if trimmed == "claude" || trimmed.starts_with("claude ") {
             // Same contract as the Windows -NoExit branch: when claude

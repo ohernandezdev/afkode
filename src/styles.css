@@ -396,6 +396,63 @@ body {
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
+/* ── Command blocks (OSC 133) ──────────────────────────── */
+
+/* Decoration root: xterm positions it over the command row; it must not
+   swallow clicks meant for the terminal text underneath. */
+.block-row {
+  pointer-events: none;
+}
+/* Status bar in the pane's left padding gutter. */
+.block-gutter {
+  position: absolute;
+  left: -12px;
+  top: 1px;
+  bottom: 1px;
+  width: 4px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.22);
+}
+.block-gutter.ok {
+  background: #98c379;
+}
+.block-gutter.err {
+  background: #e06c75;
+}
+.block-gutter.selected {
+  width: 6px;
+  box-shadow: 0 0 8px var(--accent-soft);
+  outline: 1px solid var(--accent);
+}
+.block-toolbar {
+  position: absolute;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(var(--bar-rgb), 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.block-toolbar button {
+  border: 0;
+  background: transparent;
+  color: var(--text, #c9d1d9);
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.block-toolbar button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* ── Search bar ────────────────────────────────────────── */
 
 .search-bar {
