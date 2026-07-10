@@ -173,10 +173,7 @@ fn start_hook_server(app: AppHandle) -> Option<u16> {
                         let mut body = String::new();
                         // Cap the accepted body: hook payloads are small JSON;
                         // don't let a rogue local client feed us gigabytes.
-                        let _ = req
-                            .as_reader()
-                            .take(1024 * 1024)
-                            .read_to_string(&mut body);
+                        let _ = req.as_reader().take(1024 * 1024).read_to_string(&mut body);
                         if body.is_empty() {
                             let _ = req.respond(tiny_http::Response::empty(200));
                             continue;
@@ -300,6 +297,12 @@ fn split_flags(s: &str) -> Vec<String> {
     out
 }
 
+/// Quote a string as a PowerShell single-quoted literal: everything inside
+/// '…' is verbatim, and a doubled '' is the only recognized escape.
+fn ps_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +341,16 @@ mod tests {
     fn split_flags_empty_quoted_arg_survives() {
         assert_eq!(split_flags(r#"-p "" --foo"#), vec!["-p", "", "--foo"]);
         assert_eq!(split_flags(r#"--foo="bar baz""#), vec!["--foo=bar baz"]);
+    }
+
+    #[test]
+    fn ps_squote_escapes_single_quotes() {
+        assert_eq!(ps_squote("plain"), "'plain'");
+        assert_eq!(ps_squote("it's"), "'it''s'");
+        assert_eq!(
+            ps_squote(r"C:\Users\Foo Bar\proj"),
+            r"'C:\Users\Foo Bar\proj'"
+        );
     }
 
     #[test]
@@ -399,21 +412,41 @@ async fn spawn_pty(
         let mut b = CommandBuilder::new("powershell.exe");
         b.args(["-NoLogo"]);
         b
-    } else if (trimmed == "claude" || trimmed.starts_with("claude ")) && hooks {
-        // Opt-in integration: inject hook settings so the agent reports
-        // real state (tool use, permission waits, turn end). User-supplied
-        // flags (--resume, --dangerously-skip-permissions, …) pass through.
-        let mut b = CommandBuilder::new("cmd.exe");
-        let mut args: Vec<String> = vec!["/c".into(), "claude".into()];
+    } else if trimmed == "claude" || trimmed.starts_with("claude ") {
+        // Run the agent inside a persistent PowerShell (-NoExit) so the tab
+        // drops back to a usable prompt in the same cwd when claude exits,
+        // instead of dying with the PTY. User-supplied flags (--resume,
+        // --dangerously-skip-permissions, …) pass through; with hook
+        // integration enabled, --settings is injected so the agent reports
+        // real state (tool use, permission waits, turn end).
+        let mut args: Vec<String> = vec!["claude".into()];
         if let Some(rest) = trimmed.strip_prefix("claude") {
             args.extend(split_flags(rest.trim()));
         }
-        if let Some(hooks_file) = HOOKS_FILE.get() {
-            args.push("--settings".into());
-            args.push(hooks_file.to_string_lossy().to_string());
+        if hooks {
+            if let Some(hooks_file) = HOOKS_FILE.get() {
+                args.push("--settings".into());
+                args.push(hooks_file.to_string_lossy().to_string());
+            }
         }
-        let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        b.args(refs);
+        // -EncodedCommand (base64 of UTF-16LE) instead of -Command: nesting
+        // a command line inside argv-level quoting is the same corruption
+        // trap the AFKODE_CMD env-var route below dodges for cmd.exe.
+        let script = format!(
+            "& {}",
+            args.iter()
+                .map(|a| ps_squote(a))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        use base64::Engine;
+        let utf16: Vec<u8> = script
+            .encode_utf16()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
+        let mut b = CommandBuilder::new("powershell.exe");
+        b.args(["-NoLogo", "-NoExit", "-EncodedCommand", &encoded]);
         b
     } else if trimmed.contains('"') {
         // Pass the raw line through an env var that cmd expands itself:
@@ -670,9 +703,8 @@ async fn clipboard_image_to_temp() -> Result<String, String> {
     // username, and Windows allows ' in usernames — an unescaped quote both
     // breaks the script and is a string-injection point.
     let ps_path = path.display().to_string().replace('\'', "''");
-    let script = format!(
-        "$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{ps_path}') }}"
-    );
+    let script =
+        format!("$img = Get-Clipboard -Format Image; if ($img) {{ $img.Save('{ps_path}') }}");
     let mut c = std::process::Command::new("powershell.exe");
     c.args(["-NoProfile", "-Command", &script]);
     #[cfg(target_os = "windows")]
@@ -786,7 +818,11 @@ async fn read_text_file(path: String) -> Result<String, String> {
     }
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let truncated = bytes.len() as u64 > MAX_BYTES;
-    let slice = if truncated { &bytes[..MAX_BYTES as usize] } else { &bytes[..] };
+    let slice = if truncated {
+        &bytes[..MAX_BYTES as usize]
+    } else {
+        &bytes[..]
+    };
     if slice.contains(&0) {
         return Err("binary file".into());
     }
@@ -846,7 +882,12 @@ async fn git_status(cwd: String) -> Option<GitStatus> {
             removed = n.trim().parse().unwrap_or(0);
         }
     }
-    Some(GitStatus { branch, added, removed, dirty: !porcelain.is_empty() })
+    Some(GitStatus {
+        branch,
+        added,
+        removed,
+        dirty: !porcelain.is_empty(),
+    })
 }
 
 /// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe).
@@ -1220,7 +1261,9 @@ pub fn run() {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     use tauri_plugin_updater::UpdaterExt;
-                    let Ok(updater) = handle.updater() else { return };
+                    let Ok(updater) = handle.updater() else {
+                        return;
+                    };
                     let Ok(Some(update)) = updater.check().await else {
                         return;
                     };
