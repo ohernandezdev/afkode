@@ -1,10 +1,49 @@
+<div align="center">
+
+<img src="logo.png" alt="AFKode" width="96" />
+
 # AFKode
 
-**Your AI codes while you play.** An in-game overlay to supervise AI coding agents (Claude Code, OpenCode, Codex) — or any terminal — without leaving your game.
+**Your AI codes while you play.**
 
-Built with **Tauri 2** (Rust + the OS webview) and **xterm.js with the WebGL renderer** — instant startup, minimal RAM, and near-zero FPS impact. The Windows installer is ~2 MB. Runs on **Windows, macOS and Linux** (see the [feature support matrix](#platform-support)).
+An in-game overlay to supervise AI coding agents — Claude Code, OpenCode, Codex, or any terminal — without leaving your game. Press `Alt+X`, check on your agent, approve, go back to the match.
 
-## Global hotkeys
+[![Release](https://img.shields.io/github/v/release/ohernandezdev/afkode?color=d97757&label=release)](https://github.com/ohernandezdev/afkode/releases)
+[![Downloads](https://img.shields.io/github/downloads/ohernandezdev/afkode/total?color=d97757)](https://github.com/ohernandezdev/afkode/releases)
+[![CI](https://github.com/ohernandezdev/afkode/actions/workflows/ci.yml/badge.svg)](https://github.com/ohernandezdev/afkode/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555)
+
+<img src="docs/media/afkode-claude-session.png" alt="AFKode supervising a live Claude Code session — tabs, command blocks, git footer and hotkey hints" width="820" />
+
+*A real session: AFKode supervising Claude Code (which is auditing AFKode's own codebase).*
+
+<!-- TODO(media): hero GIF over a game — Alt+X toggle, ghost mode, approve from the HUD. See docs/MEDIA.md for the shot list. -->
+
+</div>
+
+## Why AFKode?
+
+- 🎮 **Never leave your game.** The overlay floats above windowed/borderless games. `Alt+X` toggles it instantly — no alt-tab, no FPS hit (Tauri + WebGL rendering, ~2 MB installer).
+- 🤖 **Your agent's real state, not a guess.** Claude Code sessions launch with injected hooks that report exactly which tool is running, when it waits for your permission, and when a turn ends — all local (127.0.0.1).
+- ⚡ **Approve without opening anything.** `Alt+A` answers the pending permission prompt from anywhere. The mini-HUD pill shows 🟠 working · 🟡 waiting · 🟢 done while the overlay is hidden.
+- 🔕 **Knows when you're in a match.** Fullscreen game focused → notifications go silent and queue in an inbox; one ping when you're back in the lobby.
+- 💬 **Talk to it from a Spotlight-style palette.** `Alt+P`, type the task, Enter — it lands in the right session, with history, `/command` and `@file` autocomplete.
+- 🧱 **A real terminal underneath.** ConPTY/PTY, truecolor, interactive TUIs, Warp-style command blocks (OSC 133), search, themes.
+
+## Install
+
+| OS | How |
+|---|---|
+| **Windows** | `winget install OmarHernandez.AFKode` — or the NSIS installer from [Releases](https://github.com/ohernandezdev/afkode/releases) |
+| **macOS** | Download the `.dmg` from [Releases](https://github.com/ohernandezdev/afkode/releases), drag to Applications. Unsigned for now: right-click → Open on first launch (or `xattr -dr com.apple.quarantine /Applications/AFKode.app`) |
+| **Linux** | `.AppImage` (self-updating) or `.deb`/`.rpm` from [Releases](https://github.com/ohernandezdev/afkode/releases) |
+
+AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts). First run opens a guided wizard that installs Node.js and Claude Code for you if they're missing.
+
+## Hotkeys
+
+Global (work from inside your game):
 
 | Hotkey | Action |
 |---|---|
@@ -14,9 +53,9 @@ Built with **Tauri 2** (Rust + the OS webview) and **xterm.js with the WebGL ren
 | `Alt + A` | Approve: answer "yes" to the agent waiting for permission, without opening the overlay |
 | `Alt + N` | Toggle do-not-disturb manually (lobbies are fullscreen too); auto-resets when the game closes |
 
-On macOS, `Alt` is the **Option (⌥)** key: the shortcuts are `⌥X`, `⌥G`, `⌥P` / `⌃⌥P`, `⌥A`, `⌥N`.
+On macOS, `Alt` is the **Option (⌥)** key: `⌥X`, `⌥G`, `⌥P` / `⌃⌥P`, `⌥A`, `⌥N`.
 
-### In-app shortcuts
+In-app:
 
 | Windows / Linux | macOS | Action |
 |---|---|---|
@@ -32,28 +71,31 @@ On macOS, `Ctrl+F`, `Ctrl+K` and `Ctrl+V` pass through to the shell (they are re
 
 ## Features
 
-- **System tray**: AFKode lives next to the clock — left-click toggles the overlay, right-click opens the menu (ghost mode, palette, quit). The window's × hides to the tray instead of closing.
-- **Mini-HUD**: a tiny draggable pill, visible while the overlay is hidden: 🟠 working · 3:42 / 🟡 waiting for you / 🟢 done. Click ⤢ to open the overlay. Toggle it in ⚙.
-- **Hotkey approvals**: `Alt+A` answers the agent's permission prompt (Enter or `y` depending on the prompt type) without opening the overlay.
-- **Prompt palette**: `Alt+P` opens a Spotlight-style input; Enter sends the text to the active agent session.
-- **Auto-launch**: optional (⚙) — starts Claude Code in your last-used folder when AFKode opens.
-- **Real agent integration (Claude Code hooks)**: optional (⚙, on by default) — sessions launch with injected hooks that report exact state to a local listener (127.0.0.1): which tool runs, when it waits for permission, when a turn ends. The HUD, `Alt+A` and the summary are exact, not guessed. Other CLIs fall back to text heuristics.
-- **Do-not-disturb in match**: while a fullscreen game holds focus, AFKode stays silent; pending items queue in the **between-matches inbox** (approve/jump per row) and one ping fires when silence lifts. `Alt+N` overrides manually (lobbies are fullscreen too), 🔕 shows on the HUD.
+### Supervise your agents
+
+- **Real agent integration (Claude Code hooks)**: sessions launch with injected hooks reporting exact state to a local listener — which tool runs, when it waits for permission, when a turn ends. The HUD, `Alt+A` and the summary are exact, not guessed. Other CLIs fall back to text heuristics. Optional (⚙, on by default).
+- **Mini-HUD**: a tiny draggable pill, visible while the overlay is hidden: 🟠 working · 3:42 / 🟡 waiting for you / 🟢 done. Grows a ↩ quick-reply button when an agent waits.
+- **Do-not-disturb in match**: while a fullscreen game holds focus, AFKode stays silent; pending items queue in the **between-matches inbox** (approve/jump per row) and one ping fires when silence lifts.
 - **"While you were away" summary**: coming back after 2+ minutes shows turns completed, tools run, files touched, and how long agents sat waiting for you.
+- **Agent-aware notifications**: overlay hidden + agent finishes or blocks on input → native toast + optional beep, or **voice announcements (TTS)** copilot-style over your game audio.
 - **Prompt palette with autocomplete**: history (↑), Claude Code `/commands`, and `@file` completion against the session's folder (Tab).
-- **Quick reply**: the HUD pill grows a ↩ button when an agent waits — the palette opens pre-targeted at the asking session with a context line.
-- **Voice announcements (TTS)**: optional copilot-style voice over game audio; immune to Windows fullscreen toast suppression.
-- **Agent-aware notifications**: if the overlay is hidden and your agent finishes or gets stuck waiting for input (permission prompt, `y/n`, ANSI bell), you get a Windows toast + optional beep.
-- **Command blocks (Warp-style)**: shell tabs group each command + its output into a block via OSC 133 shell integration (injected at spawn — your profile files are never edited). Colored gutter bar per block (green ✓ / red ✗ by exit status), hover toolbar (copy command / output / both, re-run), `Ctrl+↑/↓` (`Cmd` on macOS) jumps between blocks, and `Ctrl+Shift+C` with a block selected copies its output. Automatic for PowerShell (Windows), bash (Linux) and zsh; other shells can [opt in manually](#command-blocks-in-other-shells). Agent TUI tabs are unaffected.
-- **Search** (`Ctrl+F` / `⌘F`), **Unicode 11** cell widths, and **drag & drop** of files/folders (path pasted into the active session).
-- **Memory saver**: hiding the overlay trims the host working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
-- **Folder picker**: sessions start in a project folder chosen via the native Windows dialog.
-- **CLI detection**: launchers detect which agents are installed; missing ones install with one click (`npm install -g …` in a tab).
-- **Tabs**: multiple parallel sessions (Claude Code, OpenCode, Codex, PowerShell — your login shell on macOS/Linux) — double-click to rename, right-click for a color tag; live state dots per tab; `Ctrl+K` (`⌘K`) searches open sessions.
-- **Git footer**: branch, `+added/-removed` diff stat and dirty indicator for the active session's folder, Warp-style.
-- **Real terminal (ConPTY)**: truecolor, interactive apps, GPU-rendered. Copy-on-select, `Ctrl+Shift+C/V` (`⌘C`/`⌘V` on macOS), right-click copy/paste (inside TUIs, select with `Shift+drag`).
-- **Customization**: 9 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Dark, Monokai), font family/size, English/Spanish UI, background opacity slider.
-- **Window memory**: position and size are restored across sessions.
+
+### A terminal built for this
+
+- **Real terminal (ConPTY/PTY)**: truecolor, interactive apps, GPU-rendered (WebGL). Copy-on-select, right-click copy/paste, drag & drop of files/folders.
+- **Command blocks (Warp-style)**: shell tabs group each command + its output into a block via OSC 133 shell integration (injected at spawn — your profile files are never edited). Colored gutter per block (green ✓ / red ✗), hover toolbar (copy command/output/both, re-run), keyboard navigation. Automatic for PowerShell (Windows), bash (Linux) and zsh (macOS/Linux); [other shells can opt in](#command-blocks-in-other-shells). Agent TUI tabs are unaffected.
+- **Tabs**: parallel sessions (Claude Code, OpenCode, Codex, your shell) — rename, color tags, live state dots, `Ctrl+K` session search.
+- **Git footer**: branch, `+added/-removed` and dirty indicator for the active session's folder.
+- **CLI detection & one-click install**: launchers detect installed agents; missing ones install with one click. First-run wizard handles Node.js + Claude Code + login.
+- **Clipboard image paste**: `Ctrl+V` with a screenshot on the clipboard saves it to a temp PNG and hands the path to the agent.
+
+### Made to disappear
+
+- **System tray**: left-click toggles the overlay, right-click opens the menu. The window's × hides to the tray instead of closing.
+- **Ghost mode**: the overlay stays visible as a translucent HUD while clicks and keys go to the game.
+- **Overlay ↔ window mode**: always-on-top borderless overlay for gaming, or a normal taskbar window when you're not.
+- **Memory saver** (Windows): hiding the overlay trims the working set (~6 MB) and puts WebView2 in low-memory mode — lightest exactly while you play.
+- **Customization**: 9 themes (Warp Dark, Claude Warm, Dracula, Nord, Tokyo Night, Gruvbox, Solarized, GitHub Dark, Monokai), font family/size, English/Spanish UI, background opacity slider, window position/size memory.
 
 ## Platform support
 
@@ -80,7 +122,7 @@ AFKode is Windows-first; macOS and Linux builds ship from the same codebase with
 Notes:
 - **Wayland**: fullscreen-game detection is out of scope (no protocol for inspecting foreign windows); DND works via the manual `Alt+N` toggle. Under XWayland-capable setups the X11 path may still work.
 - macOS/Linux builds are CI-verified (build + `cargo check`/tests per OS); day-to-day development happens on Windows, so treat non-Windows paths as less battle-tested and report issues.
-- A full per-module macOS audit (what works, what was fixed, what is Windows-only by design, and what still needs on-device verification) lives in [MACOS-AUDIT.md](MACOS-AUDIT.md).
+- A full per-module macOS audit (what works, what was fixed, what is Windows-only by design, and what still needs on-device verification) lives in [docs/MACOS-AUDIT.md](docs/MACOS-AUDIT.md).
 
 ### Command blocks in other shells
 
@@ -104,6 +146,12 @@ end
 
 Notes: bash integration is injected via `--rcfile`, which bash ignores for login shells (`-l`), so a bash login shell on macOS gets no blocks — zsh (the macOS default) is fully supported. If your `.bashrc` already sets a `PROMPT_COMMAND`, it is preserved (AFKode prepends its hook).
 
+## Limitations
+
+- Works over games in **windowed or borderless** mode (like Discord/Overwolf without injection). In *exclusive fullscreen* the game covers the overlay.
+- Hotkeys are defined in `src-tauri/src/lib.rs` (`TOGGLE_SHORTCUT`, `GHOST_SHORTCUT`, …). `Alt+Z` is typically taken by the NVIDIA overlay, which is why ghost mode uses `Alt+G`.
+- **Code signing** is pending (OV/EV certificate): Windows SmartScreen warns on install for now.
+
 ## Development
 
 ```powershell
@@ -113,43 +161,22 @@ npm run tauri dev
 
 On Linux you need the Tauri 2 system packages first: `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf`.
 
-## Production build
+Production build: `npm run tauri build` — installers land in `src-tauri/target/release/bundle/` (NSIS `.exe` + MSI on Windows, `.dmg` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux). CI builds all of them from a 3-OS matrix on every `v*` tag.
 
-```powershell
-npm run tauri build
-```
+## Roadmap
 
-Installers land in `src-tauri/target/release/bundle/` — NSIS `.exe` + MSI on Windows, `.dmg` on macOS, `.deb`/`.rpm`/`.AppImage` on Linux. CI builds all of them from a 3-OS matrix on every `v*` tag.
+The feature roadmap lives in [docs/ROADMAP-FEATURES.md](docs/ROADMAP-FEATURES.md) — 12 Warp-inspired features planned across v0.8–v1.1:
 
-## Install
-
-- **Windows**: grab the NSIS installer from [Releases](https://github.com/ohernandezdev/afkode/releases) (or `winget install OmarHernandez.AFKode`).
-- **macOS**: download the `.dmg` from Releases and drag AFKode to Applications. The build is unsigned/un-notarized for now: right-click → Open on first launch (or `xattr -dr com.apple.quarantine /Applications/AFKode.app`).
-- **Linux**: download the `.AppImage` (self-updating) or the `.deb`/`.rpm` from Releases.
-
-AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts); restart to apply.
-
-## Pending for public distribution
-
-- **Code signing** (OV/EV certificate): without it, Windows SmartScreen warns on install.
-
-## Limitations
-
-- Works over games in **windowed or borderless** mode (like Discord/Overwolf without injection). In *exclusive fullscreen* the game covers the overlay.
-- Hotkeys are defined in `src-tauri/src/lib.rs` (`TOGGLE_SHORTCUT`, `GHOST_SHORTCUT`, …). `Alt+Z` is typically taken by the NVIDIA overlay, which is why ghost mode uses `Alt+G`.
-
-## What's next
-
-The feature roadmap lives in [ROADMAP-FEATURES.md](ROADMAP-FEATURES.md) — 12 Warp-inspired features planned across v0.8–v1.1, each with a description, state-of-the-art references, an implementation plan, and a ready-to-paste `/goal` prompt for an AI coding agent:
-
-- **v0.8 — Terminal IQ**: Command Blocks (OSC 133), Command Palette (`>` actions), AI Command Search (`#` → command via local Claude Code), Session Restore.
+- **v0.8 — Terminal IQ**: Command Blocks (OSC 133) ✅, Command Palette (`>` actions), AI Command Search, Session Restore.
 - **v0.9 — Trust & Approvals**: Diff preview before approving Edits, risk-graded approvals (🟢/🟡/🔴), per-session cost & token telemetry.
 - **v1.0 — Fleet & Chat**: Chat View over agent transcripts, fleet mini-dashboard on the HUD, remote approvals from Telegram.
 - **v1.1 — Gamer Distribution**: Discord Rich Presence + shareable session cards, edge-docked peek mode & per-game HUD profiles.
 
+Product thesis: [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Product thesis: [ROADMAP.md](ROADMAP.md) · Feature roadmap: [ROADMAP-FEATURES.md](ROADMAP-FEATURES.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome — especially macOS/Linux field reports (see the [audit's device-testing checklist](docs/MACOS-AUDIT.md#needs-device-testing)).
 
 ## License
 
