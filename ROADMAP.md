@@ -1,5 +1,7 @@
 # AFKode Roadmap
 
+> This file is the **product thesis and priority order**. The concrete execution roadmap — next features, plans, state-of-the-art references, and `/goal` prompts to implement each with an AI coding agent — lives in [ROADMAP-FEATURES.md](ROADMAP-FEATURES.md).
+
 ## Thesis
 
 A pretty floating terminal is copyable in a weekend. AFKode's real category — one that doesn't have an owner yet — is the **ambient supervision layer for AI coding agents**. Gaming is the Trojan horse, not the end market: it's simply the first place where the pain of "my agent works for 30 minutes but wastes half of it waiting for my approval" is obvious. In two years, everyone supervising agents while doing something else is the market.
