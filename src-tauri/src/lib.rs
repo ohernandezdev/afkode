@@ -2008,6 +2008,15 @@ pub fn run() {
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, _event| {
+            // macOS: clicking the Dock icon fires Reopen (there is no
+            // taskbar button or tray left-click like Windows) — bring the
+            // hidden overlay back instead of ignoring the click.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                show_overlay(_app.clone());
+            }
+        });
 }
