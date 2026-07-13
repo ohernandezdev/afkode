@@ -1022,6 +1022,12 @@ function setActive(id: string) {
   // The ask strip belongs to one session; don't leave it floating over
   // another tab where Insert would type into the wrong shell.
   if (askSession && askSession.id !== id) closeAskStrip();
+  // Activating a session means the user is done with the "+" picker — if it
+  // stayed forced-open it would keep covering the terminal with no way back.
+  if (forceEmptyState) {
+    forceEmptyState = false;
+    updateEmptyState();
+  }
   activeId = id;
   for (const s of sessions.values()) {
     s.pane.classList.toggle("active", s.id === id);
@@ -2300,6 +2306,10 @@ document.addEventListener("keydown", (e) => {
   if (mod && !e.shiftKey && e.code === "KeyF") {
     e.preventDefault();
     openSearch();
+  } else if (e.key === "Escape" && forceEmptyState && sessions.size > 0) {
+    // Dismiss the forced "+" picker and return to the active session.
+    forceEmptyState = false;
+    updateEmptyState();
   }
 });
 

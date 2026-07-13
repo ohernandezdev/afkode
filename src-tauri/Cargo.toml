@@ -1,6 +1,6 @@
 [package]
 name = "afkode"
-version = "0.8.8"
+version = "0.8.9"
 description = "In-game overlay to supervise AI coding agents while you play"
 authors = ["Omar Hernandez"]
 license = "MIT"
