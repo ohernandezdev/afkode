@@ -340,6 +340,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchEmpty: "Sin resultados",
     linkOpening: "Abriendo enlace en tu navegador…",
     linkOpenFailed: "No pude abrir el navegador — copié el enlace, pégalo donde quieras",
+    noBlockToCopy: "No hay ningún bloque terminado que copiar",
     pastedImageInstead: "Tu clipboard no tenía texto, así que pegué una imagen en su lugar",
     filePreviewError: "No se pudo abrir el archivo",
     filePreviewNotFoundBare:
@@ -437,6 +438,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchEmpty: "No results",
     linkOpening: "Opening link in your browser…",
     linkOpenFailed: "Couldn't open your browser — copied the link, paste it anywhere",
+    noBlockToCopy: "No finished block to copy yet",
     pastedImageInstead: "Your clipboard had no text, so an image got pasted instead",
     filePreviewError: "Couldn't open the file",
     filePreviewNotFoundBare:
@@ -534,6 +536,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchEmpty: "Aucun résultat",
     linkOpening: "Ouverture du lien dans votre navigateur…",
     linkOpenFailed: "Impossible d'ouvrir le navigateur — lien copié, collez-le où vous voulez",
+    noBlockToCopy: "Aucun bloc terminé à copier",
     pastedImageInstead: "Votre presse-papiers ne contenait pas de texte, une image a donc été collée à la place",
     filePreviewError: "Impossible d'ouvrir le fichier",
     filePreviewNotFoundBare:
@@ -631,6 +634,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     globalSearchEmpty: "Nessun risultato",
     linkOpening: "Apertura del link nel browser…",
     linkOpenFailed: "Impossibile aprire il browser — link copiato, incollalo dove vuoi",
+    noBlockToCopy: "Nessun blocco terminato da copiare",
     pastedImageInstead: "Gli appunti non contenevano testo, quindi è stata incollata un'immagine",
     filePreviewError: "Impossibile aprire il file",
     filePreviewNotFoundBare:
@@ -2857,6 +2861,87 @@ window.addEventListener("unhandledrejection", (e) =>
   surfaceError(String(e.reason).slice(0, 300)),
 );
 window.addEventListener("error", (e) => surfaceError(String(e.message).slice(0, 300)));
+
+// ── Palette '>' actions ────────────────────────────────────
+//
+// The palette window owns the action list and fuzzy search (palette.ts);
+// each id maps here onto a handler the app already has. Anything that
+// needs the user to see the result brings the overlay up first.
+
+const PALETTE_ACTIONS: Record<string, () => void> = {
+  "new-claude": () => {
+    invoke("show_overlay").catch(() => {});
+    launchCli("claude", "Claude Code", pickedFolder);
+  },
+  "new-opencode": () => {
+    invoke("show_overlay").catch(() => {});
+    launchCli("opencode", "OpenCode", pickedFolder);
+  },
+  "new-codex": () => {
+    invoke("show_overlay").catch(() => {});
+    launchCli("codex", "Codex", pickedFolder);
+  },
+  "new-shell": () => {
+    invoke("show_overlay").catch(() => {});
+    launchCli("", platform.os === "windows" ? "PowerShell" : "Shell", pickedFolder);
+  },
+  "new-picker": () => {
+    invoke("show_overlay").catch(() => {});
+    forceEmptyState = true;
+    updateEmptyState();
+  },
+  "next-theme": () => {
+    const keys = Object.keys(THEMES);
+    settings.theme = keys[(keys.indexOf(settings.theme) + 1) % keys.length];
+    saveSettings();
+    applyTheme();
+    setThemePickerLabel();
+    renderThemeMenu();
+  },
+  "toggle-ghost": () => {
+    invoke("set_ghost_mode", { enabled: !overlayEl.classList.contains("ghost") }).catch(() => {});
+  },
+  "toggle-dnd": () => {
+    dndOverride = !dndSilent();
+    dndChanged();
+  },
+  "toggle-hud": () => {
+    settings.hud = !settings.hud;
+    saveSettings();
+    $<HTMLInputElement>("#chk-hud").checked = settings.hud;
+  },
+  "toggle-window-mode": () => setOverlayMode(!settings.overlayMode),
+  "open-settings": () => {
+    invoke("show_overlay").catch(() => {});
+    $("#settings-modal").classList.remove("hidden");
+  },
+  "open-help": () => {
+    invoke("show_overlay").catch(() => {});
+    helpModal.classList.remove("hidden");
+  },
+  "session-search": () => {
+    invoke("show_overlay").catch(() => {});
+    openGlobalSearch();
+  },
+  "jump-waiting": () => {
+    const waiting = [...sessions.values()].find(
+      (s) => s.cmd && s.alive && sessionState(s) === "waiting",
+    );
+    invoke("show_overlay").catch(() => {});
+    if (waiting) setActive(waiting.id);
+  },
+  "close-session": () => {
+    if (activeId) closeSession(activeId);
+  },
+  "copy-last-block": () => {
+    const s = activeId ? sessions.get(activeId) : null;
+    if (s && !s.blocks.copyLastOutput()) showLinkToast(t("noBlockToCopy"));
+  },
+};
+
+listen<string>("palette-action", (e) => {
+  PALETTE_ACTIONS[e.payload]?.();
+});
 
 // ── Boot ──────────────────────────────────────────────────
 

@@ -314,4 +314,13 @@ export class CommandBlocks {
     this.copyText(this.readOutput(this.selected));
     return true;
   }
+
+  /** Palette action: copy the most recent finished block's output. */
+  copyLastOutput(): boolean {
+    const live = this.blocks.filter((b) => b.done && b.input && b.input.line >= 0);
+    const last = live[live.length - 1];
+    if (!last) return false;
+    this.copyText(this.readOutput(last));
+    return true;
+  }
 }
