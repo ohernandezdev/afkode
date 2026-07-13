@@ -813,6 +813,22 @@ async fn spawn_pty(
     std::thread::spawn(move || {
         let mut chunk = [0u8; 32768];
         let mut pending: Vec<u8> = Vec::new();
+        // A reused id (webview reload) leaves this thread's session
+        // overwritten in the map by a newer one with a different `gen`.
+        // Without this check the orphan keeps emitting `pty-output` under
+        // the shared id, and the frontend writes it into whichever tab
+        // currently owns that id — duplicated/interleaved lines while the
+        // user types in the new session.
+        let is_current = || {
+            app.try_state::<PtyState>().is_some_and(|state| {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .is_some_and(|s| s.gen == gen)
+            })
+        };
         loop {
             match reader.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
@@ -820,6 +836,9 @@ async fn spawn_pty(
                     pending.extend_from_slice(&chunk[..n]);
                     let (split, clean) = valid_utf8_split(&pending);
                     if !clean {
+                        if !is_current() {
+                            break;
+                        }
                         let text = String::from_utf8_lossy(&pending).into_owned();
                         let _ = app.emit(
                             "pty-output",
@@ -830,6 +849,9 @@ async fn spawn_pty(
                         );
                         pending.clear();
                     } else if split > 0 {
+                        if !is_current() {
+                            break;
+                        }
                         let text = std::str::from_utf8(&pending[..split]).unwrap().to_owned();
                         let _ = app.emit(
                             "pty-output",
@@ -843,7 +865,7 @@ async fn spawn_pty(
                 }
             }
         }
-        if !pending.is_empty() {
+        if !pending.is_empty() && is_current() {
             let text = String::from_utf8_lossy(&pending).into_owned();
             let _ = app.emit(
                 "pty-output",
