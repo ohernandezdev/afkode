@@ -25,3 +25,12 @@ dist-ssr
 
 # graphify knowledge-graph output (local tooling artifact)
 graphify-out/
+
+# design-sync
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+ds/node_modules/
+ds/dist/

@@ -1,0 +1,22 @@
+{
+  "projectId": "51a8cd94-0805-4955-ac55-24040d27643f",
+  "shape": "package",
+  "pkg": "afkode-ds",
+  "globalName": "AfkodeDS",
+  "buildCmd": "cd ds && npm install && npm run build",
+  "cssEntry": "dist/styles.css",
+  "extraFonts": [
+    "fonts/cascadia.css"
+  ],
+  "docsDir": "docs",
+  "guidelinesGlob": [],
+  "overrides": {
+    "Tab": {
+      "cardMode": "column"
+    },
+    "Tabs": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
