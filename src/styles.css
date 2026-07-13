@@ -73,7 +73,7 @@ body {
 .titlebar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   height: 44px;
   padding: 0 8px 0 16px;
   background: rgba(var(--bar-rgb), var(--panel-alpha));
@@ -85,7 +85,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: 6px;
+  margin-right: 14px;
 }
 
 .brand-dot {
@@ -124,13 +124,14 @@ body {
   padding: 0 10px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.035);
+  /* #15161c in the default theme — a step lighter than the bar surface. */
+  background: color-mix(in srgb, rgb(var(--bar-rgb)) 96%, white);
   color: var(--text-dim);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  max-width: 220px;
+  width: 220px;
   overflow: hidden;
 }
 .header-search:hover {
@@ -228,7 +229,7 @@ body {
   align-items: stretch;
   align-self: stretch;
   gap: 2px;
-  max-width: 55%;
+  max-width: 56%;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -285,12 +286,12 @@ body {
 .tab .tab-x {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  margin-left: 2px;
+  padding: 2px 4px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 10px;
   line-height: 1;
-  color: var(--text-dim);
+  color: #5b616d;
 }
 .tab .tab-x:hover {
   background: rgba(255, 255, 255, 0.12);
@@ -367,14 +368,19 @@ body {
   color: var(--accent);
 }
 .btn-add {
-  font-size: 16px;
-  font-weight: 300;
-  padding-bottom: 2px;
+  width: 30px;
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .controls {
   display: flex;
-  gap: 3px;
+  gap: 4px;
+  margin-left: 14px;
+}
+.controls .btn {
+  color: var(--text);
 }
 
 .mi {
@@ -524,15 +530,15 @@ body {
 
 .inbox {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 16px;
+  right: 16px;
   z-index: 40;
-  width: min(400px, 92%);
-  padding: 10px 12px;
+  width: min(320px, 92%);
   background: rgba(var(--bar-rgb), 0.97);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
   animation: row-in 0.25s ease both;
 }
 
@@ -540,10 +546,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .inbox-head h3 {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-bright);
 }
@@ -555,16 +562,20 @@ body {
 .inbox-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 6px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease;
+}
+.inbox-row:last-child {
+  border-bottom: 0;
 }
 .inbox-row:hover {
   background: rgba(255, 255, 255, 0.045);
 }
 .inbox-row .dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -585,7 +596,7 @@ body {
 }
 .inbox-info b {
   display: block;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -594,7 +605,8 @@ body {
 }
 .inbox-detail {
   display: block;
-  font-size: 11px;
+  margin-top: 1px;
+  font-size: 11.5px;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -608,7 +620,7 @@ body {
 }
 .inbox-btn {
   min-height: 32px;
-  padding: 4px 12px;
+  padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 6px;
   background: transparent;
@@ -1085,7 +1097,7 @@ button.missing::after {
 }
 
 .status-left {
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1094,17 +1106,23 @@ button.missing::after {
 .status-mid {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   overflow: hidden;
+}
+/* 1px vertical divider between the cwd and the git info. */
+.status-mid::before {
+  content: "";
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .git-chip {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
   white-space: nowrap;
 }
 .git-chip.added {
@@ -1116,31 +1134,38 @@ button.missing::after {
 .mode-badge {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
 }
+.mode-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
 .mode-badge:hover {
-  border-color: rgba(255, 255, 255, 0.22);
   color: var(--text);
 }
 .mode-badge.mode-active {
   color: var(--accent);
-  border-color: var(--accent-soft);
-  background: var(--accent-soft);
   font-weight: 600;
   text-shadow: 0 0 8px var(--accent-glow);
 }
+.mode-badge.mode-active::before {
+  background: var(--accent);
+  box-shadow: 0 0 6px 1px var(--accent-glow);
+}
 
 .git-chip.dirty {
-  padding: 0 4px;
   color: #e5c07b;
   font-size: 8px;
 }
@@ -1174,19 +1199,19 @@ button.missing::after {
 }
 
 .status-right {
+  margin-left: auto;
   white-space: nowrap;
 }
 
 kbd {
   display: inline-block;
   padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-bottom-width: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  font-family: inherit;
-  font-size: 9.5px;
-  color: var(--text);
+  background: transparent;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  color: #6b7280;
 }
 
 /* ── Ghost mode ────────────────────────────────────────── */
