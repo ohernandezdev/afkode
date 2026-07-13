@@ -14,6 +14,8 @@ An in-game overlay to supervise AI coding agents — Claude Code, OpenCode, Code
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555)
 
+**[ohernandezdev.github.io/afkode](https://ohernandezdev.github.io/afkode/)**
+
 <img src="docs/media/afkode-claude-session.png" alt="AFKode supervising a live Claude Code session — tabs, command blocks, git footer and hotkey hints" width="820" />
 
 *A real session: AFKode supervising Claude Code (which is auditing AFKode's own codebase).*

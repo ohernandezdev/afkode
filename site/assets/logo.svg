@@ -1,0 +1,66 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="180" fill="#171920"/>
+
+  <!-- Snake plant / command shards -->
+  <g transform="translate(0 8)">
+    <!-- Left leaf -->
+    <path
+      d="M217 310 L384 448 L481 724 L400 724 L320 641 Z"
+      fill="#D97757"
+    />
+    <path
+      d="M282 460 L320 488 L354 590 L405 640 L433 724 L388 724 L330 620 L303 505 Z"
+      fill="#092A22"
+    />
+    <path d="M314 592 L345 617 L361 666 L326 647 Z" fill="#092A22"/>
+
+    <!-- Center leaf -->
+    <path
+      d="M563 85 L563 315 L578 724 L518 724 L438 494 L438 300 Z"
+      fill="#D97757"
+    />
+    <path
+      d="M553 278 L526 309 L526 350 L490 387 L490 624 L518 706 L518 392 L555 350 Z"
+      fill="#092A22"
+    />
+    <path d="M537 430 L561 405 L561 438 L535 452 Z" fill="#092A22"/>
+
+    <!-- Right leaf -->
+    <path
+      d="M807 335 L641 480 L542 724 L624 724 L722 638 Z"
+      fill="#D97757"
+    />
+    <path
+      d="M748 478 L703 508 L660 628 L616 724 L574 724 L634 596 L684 491 Z"
+      fill="#092A22"
+    />
+    <path d="M715 571 L748 550 L732 593 L704 606 Z" fill="#092A22"/>
+  </g>
+
+  <!-- Terminal base -->
+  <g transform="translate(0 10)">
+    <path
+      d="M304 742 L720 742 L755 770 L755 840 L704 882 L320 882 L269 840 L269 770 Z"
+      fill="#D97757"
+    />
+
+    <!-- Top negative opening -->
+    <path
+      d="M335 714 L689 714 L721 742 L303 742 Z"
+      fill="#171920"
+    />
+
+    <!-- Bottom dark cut -->
+    <path
+      d="M354 842 L421 842 L447 864 L577 864 L603 842 L670 842 L626 890 L398 890 Z"
+      fill="#171920"
+    />
+
+    <!-- Centered white terminal prompt -->
+    <path
+      d="M464 779 L464 743 L561 800 L464 857 L464 821 L509 800 Z"
+      fill="white"
+    />
+  </g>
+</svg>
