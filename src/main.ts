@@ -46,8 +46,8 @@ const TERM_COMMON: Partial<ITheme> = {
 const THEMES: Record<string, ThemeDef> = {
   "warp-dark": {
     label: "Warp Dark",
-    panelRgb: "23, 25, 32",
-    barRgb: "29, 32, 41",
+    panelRgb: "10, 10, 12",
+    barRgb: "13, 14, 18",
     text: "#c9d1d9",
     dim: "#8b93a1",
     accent: "#d97757",
@@ -56,7 +56,7 @@ const THEMES: Record<string, ThemeDef> = {
       ...TERM_COMMON,
       foreground: "#aeb5bd",
       cursor: "#d97757",
-      cursorAccent: "#171920",
+      cursorAccent: "#0a0a0c",
       black: "#21252b", red: "#e06c75", green: "#98c379", yellow: "#e5c07b",
       blue: "#61afef", magenta: "#c678dd", cyan: "#56b6c2", white: "#abb2bf",
       brightBlack: "#363a44", brightRed: "#ec8589", brightGreen: "#a9d18e",
