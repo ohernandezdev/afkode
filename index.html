@@ -82,6 +82,13 @@
           </div>
           <div id="inbox-list"></div>
         </div>
+        <div class="away-banner restore-banner hidden" id="restore-banner">
+          <span id="restore-text"></span>
+          <button class="inbox-btn ok" id="restore-yes"></button>
+          <button class="btn" id="restore-close" data-i18n-title="close">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></svg>
+          </button>
+        </div>
         <div class="away-banner hidden" id="away-banner">
           <span id="away-text"></span>
           <button class="inbox-btn ok hidden" id="away-action"></button>
@@ -242,6 +249,15 @@
             <input type="checkbox" id="chk-aisearch" class="switch" />
           </div>
           <p class="set-note" data-i18n="aiSearchNote"></p>
+          <div class="set-row">
+            <label data-i18n="restoreLabel"></label>
+            <select id="sel-restore">
+              <option value="always" data-i18n="restoreAlways"></option>
+              <option value="ask" data-i18n="restoreAsk"></option>
+              <option value="never" data-i18n="restoreNever"></option>
+            </select>
+          </div>
+          <p class="set-note" data-i18n="restoreNote"></p>
         </div>
       </div>
     </div>

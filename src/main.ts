@@ -350,6 +350,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     askExplainBtn: "Explicar",
     aiSearchLabel: "Búsqueda IA de comandos (# / Ctrl+Espacio)",
     aiSearchNote: "En pestañas de shell, # en un prompt vacío pide un comando a tu Claude Code instalado. Nunca se ejecuta solo: siempre se inserta para que lo revises.",
+    restoreLabel: "Restaurar sesión al abrir",
+    restoreAlways: "Siempre",
+    restoreAsk: "Preguntar",
+    restoreNever: "Nunca",
+    restoreNote: "Reabre tus pestañas (orden, nombres, colores y carpetas). Las pestañas de Claude ofrecen retomar la conversación anterior.",
+    restoreBannerText: "¿Restaurar tu última sesión? ({n} pestañas)",
+    restoreBtn: "Restaurar",
+    resumeQuestion: "¿Retomar la conversación anterior?",
+    resumeBtn: "Retomar",
+    freshBtn: "Empezar de cero",
     pastedImageInstead: "Tu clipboard no tenía texto, así que pegué una imagen en su lugar",
     filePreviewError: "No se pudo abrir el archivo",
     filePreviewNotFoundBare:
@@ -457,6 +467,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     askExplainBtn: "Explain",
     aiSearchLabel: "AI command search (# / Ctrl+Space)",
     aiSearchNote: "In shell tabs, # at an empty prompt asks your installed Claude Code for a command. It never runs by itself — it's inserted for you to review.",
+    restoreLabel: "Restore session on launch",
+    restoreAlways: "Always",
+    restoreAsk: "Ask",
+    restoreNever: "Never",
+    restoreNote: "Reopens your tabs (order, names, colors and folders). Claude tabs offer to resume the previous conversation.",
+    restoreBannerText: "Restore your last session? ({n} tabs)",
+    restoreBtn: "Restore",
+    resumeQuestion: "Resume previous conversation?",
+    resumeBtn: "Resume",
+    freshBtn: "Start fresh",
     pastedImageInstead: "Your clipboard had no text, so an image got pasted instead",
     filePreviewError: "Couldn't open the file",
     filePreviewNotFoundBare:
@@ -564,6 +584,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     askExplainBtn: "Expliquer",
     aiSearchLabel: "Recherche IA de commandes (# / Ctrl+Espace)",
     aiSearchNote: "Dans les onglets shell, # sur un prompt vide demande une commande à votre Claude Code installé. Elle n'est jamais exécutée seule : elle est insérée pour relecture.",
+    restoreLabel: "Restaurer la session au lancement",
+    restoreAlways: "Toujours",
+    restoreAsk: "Demander",
+    restoreNever: "Jamais",
+    restoreNote: "Rouvre vos onglets (ordre, noms, couleurs et dossiers). Les onglets Claude proposent de reprendre la conversation précédente.",
+    restoreBannerText: "Restaurer votre dernière session ? ({n} onglets)",
+    restoreBtn: "Restaurer",
+    resumeQuestion: "Reprendre la conversation précédente ?",
+    resumeBtn: "Reprendre",
+    freshBtn: "Repartir de zéro",
     pastedImageInstead: "Votre presse-papiers ne contenait pas de texte, une image a donc été collée à la place",
     filePreviewError: "Impossible d'ouvrir le fichier",
     filePreviewNotFoundBare:
@@ -671,6 +701,16 @@ const I18N: Record<Lang, Record<string, string>> = {
     askExplainBtn: "Spiega",
     aiSearchLabel: "Ricerca comandi IA (# / Ctrl+Spazio)",
     aiSearchNote: "Nelle schede shell, # su un prompt vuoto chiede un comando al tuo Claude Code installato. Non viene mai eseguito da solo: viene inserito per la revisione.",
+    restoreLabel: "Ripristina la sessione all'avvio",
+    restoreAlways: "Sempre",
+    restoreAsk: "Chiedi",
+    restoreNever: "Mai",
+    restoreNote: "Riapre le tue schede (ordine, nomi, colori e cartelle). Le schede Claude offrono di riprendere la conversazione precedente.",
+    restoreBannerText: "Ripristinare l'ultima sessione? ({n} schede)",
+    restoreBtn: "Ripristina",
+    resumeQuestion: "Riprendere la conversazione precedente?",
+    resumeBtn: "Riprendi",
+    freshBtn: "Ricomincia da zero",
     pastedImageInstead: "Gli appunti non contenevano testo, quindi è stata incollata un'immagine",
     filePreviewError: "Impossibile aprire il file",
     filePreviewNotFoundBare:
@@ -713,6 +753,7 @@ interface Settings {
   tts: boolean;
   overlayMode: boolean;
   aiSearch: boolean;
+  restore: "always" | "ask" | "never";
 }
 
 const DEFAULTS: Settings = {
@@ -729,6 +770,7 @@ const DEFAULTS: Settings = {
   tts: false,
   overlayMode: true,
   aiSearch: true,
+  restore: "ask",
 };
 
 function loadSettings(): Settings {
@@ -736,6 +778,7 @@ function loadSettings(): Settings {
     const s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("settings") ?? "{}") };
     if (!THEMES[s.theme]) s.theme = DEFAULTS.theme;
     if (!I18N[s.lang as Lang]) s.lang = DEFAULTS.lang;
+    if (!["always", "ask", "never"].includes(s.restore)) s.restore = DEFAULTS.restore;
     return s;
   } catch {
     return { ...DEFAULTS };
@@ -852,6 +895,44 @@ interface Session {
 const sessions = new Map<string, Session>();
 let activeId: string | null = null;
 let counter = 0;
+
+// ── Session journal (F4) ──────────────────────────────────
+//
+// Crash-safe by construction: rewritten (debounced) on every tab open/
+// close/rename/recolor rather than at exit, so a force-kill loses at most
+// the last half-second of layout changes. Never includes scrollback.
+
+interface JournalEntry {
+  cmd: string;
+  cwd: string | null;
+  title: string;
+  color?: string;
+}
+
+let journalTimer = 0;
+
+function writeJournal() {
+  const list: JournalEntry[] = [...sessions.values()]
+    .filter((s) => s.alive)
+    .map((s) => ({ cmd: s.cmd, cwd: s.cwd, title: s.title, color: s.color }));
+  localStorage.setItem("session-journal", JSON.stringify(list));
+}
+
+function scheduleJournal() {
+  clearTimeout(journalTimer);
+  journalTimer = window.setTimeout(writeJournal, 500);
+}
+
+function readJournal(): JournalEntry[] {
+  try {
+    const v = JSON.parse(localStorage.getItem("session-journal") ?? "[]");
+    return Array.isArray(v)
+      ? v.filter((e) => e && typeof e.cmd === "string" && typeof e.title === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 const $ = <T extends HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -986,6 +1067,7 @@ function closeSession(id: string) {
     }
   }
   updateEmptyState();
+  scheduleJournal();
 }
 
 // The DOM renderer lays out each row as real text, and fractional
@@ -1050,13 +1132,31 @@ function openLinkUri(uri: string) {
     });
 }
 
-async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
+interface NewSessionOpts {
+  /** Restore: baseTitle is the saved (possibly renamed) title — use as-is. */
+  exactTitle?: boolean;
+  /** Restore: saved tab color tag. */
+  color?: string;
+  /** Restore, agent tabs: ask Resume (`--continue`) vs fresh before spawning. */
+  offerResume?: boolean;
+}
+
+async function newSession(
+  cmd: string,
+  baseTitle: string,
+  cwd: string | null,
+  opts?: NewSessionOpts,
+) {
   if (cwd) {
     localStorage.setItem("last-folder", cwd);
     addRecentFolder(cwd);
   }
   const folderName = cwd ? cwd.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : null;
-  const title = folderName ? `${baseTitle} · ${folderName}` : baseTitle;
+  const title = opts?.exactTitle
+    ? baseTitle
+    : folderName
+      ? `${baseTitle} · ${folderName}`
+      : baseTitle;
 
   const id = `s${++counter}`;
 
@@ -1169,16 +1269,18 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   safeFit(term, fit, pane);
 
   // Loading animation until the CLI paints its first output (Claude Code's
-  // initial spin-up leaves the pane black for several seconds).
+  // initial spin-up leaves the pane black for several seconds). Created at
+  // spawn time, not tab time — a restored tab shows the resume bar first.
   let loader: HTMLElement | undefined;
-  if (cmd) {
+  const showLoader = () => {
+    if (!cmd) return;
     loader = document.createElement("div");
     loader.className = "term-loader";
     loader.innerHTML = `
       <div class="loader-ring"><span class="loader-core"></span></div>
       <div class="loader-text">${t("starting")} ${baseTitle}<span class="loader-dots"><i>.</i><i>.</i><i>.</i></span></div>`;
     pane.appendChild(loader);
-  }
+  };
 
   // Clipboard UX: copy-on-select, Ctrl+Shift+C/V, right-click copy/paste.
   // Inside TUIs (Claude Code) the app captures the mouse; Shift+drag selects.
@@ -1352,34 +1454,70 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   };
   sessions.set(id, session);
   wireTabRename(tabTitleEl, session);
+  if (opts?.color) {
+    session.color = opts.color;
+    applyTabColor(session);
+  }
   forceEmptyState = false;
   updateEmptyState();
   setActive(id);
+  scheduleJournal();
 
   term.onData((data) => invoke("write_pty", { id, data }).catch(() => {}));
   term.onResize(({ cols, rows }) =>
     invoke("resize_pty", { id, cols, rows }).catch(() => {}),
   );
 
-  try {
-    await invoke("spawn_pty", {
-      id,
-      cmd,
-      cwd,
-      hooks: settings.hooks,
-      cols: term.cols,
-      rows: term.rows,
-    });
-    // Tab closed while the spawn was in flight: closeSession's kill_pty
-    // predated the PTY registration and was a no-op — kill it now.
-    if (!sessions.has(id)) {
-      invoke("kill_pty", { id }).catch(() => {});
+  const doSpawn = async (finalCmd: string) => {
+    showLoader();
+    session.loader = loader;
+    try {
+      await invoke("spawn_pty", {
+        id,
+        cmd: finalCmd,
+        cwd,
+        hooks: settings.hooks,
+        cols: term.cols,
+        rows: term.rows,
+      });
+      // Tab closed while the spawn was in flight: closeSession's kill_pty
+      // predated the PTY registration and was a no-op — kill it now.
+      if (!sessions.has(id)) {
+        invoke("kill_pty", { id }).catch(() => {});
+      }
+    } catch (e) {
+      dismissLoader(session);
+      term.writeln(`\x1b[31m${t("spawnError")}: ${e}\x1b[0m`);
+      session.alive = false;
+      tab.classList.add("dead");
     }
-  } catch (e) {
-    dismissLoader(session);
-    term.writeln(`\x1b[31m${t("spawnError")}: ${e}\x1b[0m`);
-    session.alive = false;
-    tab.classList.add("dead");
+  };
+
+  if (opts?.offerResume) {
+    // Restored agent tab: the conversation can only be resumed by launch
+    // flag, so ask before spawning anything.
+    const bar = document.createElement("div");
+    bar.className = "resume-bar";
+    const q = document.createElement("span");
+    q.textContent = t("resumeQuestion");
+    const resumeBtn = document.createElement("button");
+    resumeBtn.className = "ask-btn ok";
+    resumeBtn.textContent = t("resumeBtn");
+    const freshBtn = document.createElement("button");
+    freshBtn.className = "ask-btn";
+    freshBtn.textContent = t("freshBtn");
+    bar.append(q, resumeBtn, freshBtn);
+    const choose = (finalCmd: string) => {
+      bar.remove();
+      doSpawn(finalCmd);
+    };
+    resumeBtn.addEventListener("click", () =>
+      choose(/--continue|--resume/.test(cmd) ? cmd : `${cmd} --continue`),
+    );
+    freshBtn.addEventListener("click", () => choose(cmd));
+    pane.appendChild(bar);
+  } else {
+    await doSpawn(cmd);
   }
   return id;
 }
@@ -2367,6 +2505,13 @@ wireSwitch("#chk-hooks", "hooks");
 wireSwitch("#chk-matchmode", "matchMode");
 wireSwitch("#chk-aisearch", "aiSearch");
 
+const selRestore = $<HTMLSelectElement>("#sel-restore");
+selRestore.value = settings.restore;
+selRestore.addEventListener("change", () => {
+  settings.restore = selRestore.value as Settings["restore"];
+  saveSettings();
+});
+
 const chkOverlayMode = $<HTMLInputElement>("#chk-overlaymode");
 chkOverlayMode.checked = settings.overlayMode;
 invoke("set_window_mode", { overlay: settings.overlayMode }).catch(() => {});
@@ -2506,6 +2651,7 @@ function wireTabRename(titleEl: HTMLElement, session: Session) {
       input.replaceWith(next);
       wireTabRename(next, session);
       updateStatus();
+      scheduleJournal();
     };
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") commit(true);
@@ -2541,6 +2687,7 @@ tabColorMenu.addEventListener("click", (e) => {
   if (!btn || !colorMenuTarget) return;
   colorMenuTarget.color = btn.dataset.color || undefined;
   applyTabColor(colorMenuTarget);
+  scheduleJournal();
   tabColorMenu.classList.add("hidden");
 });
 document.addEventListener("click", (e) => {
@@ -3138,15 +3285,63 @@ listen<string>("palette-action", (e) => {
   PALETTE_ACTIONS[e.payload]?.();
 });
 
+// ── Session restore (F4) ──────────────────────────────────
+
+let restorePending = false;
+// sessions.set happens after newSession's first await, so sessions.size may
+// still read 0 when the auto-launch check runs — this flag closes that race.
+let restoredLayout = false;
+
+function restoreAll(entries: JournalEntry[]) {
+  restorePending = false;
+  restoredLayout = entries.length > 0;
+  $("#restore-banner").classList.add("hidden");
+  for (const e of entries) {
+    // Only Claude Code has a resumable-conversation launch flag today.
+    const offerResume = /^claude(\s|$)/.test(e.cmd);
+    newSession(e.cmd, e.title, e.cwd, { exactTitle: true, color: e.color, offerResume });
+  }
+}
+
+function maybeRestore() {
+  const journal = readJournal();
+  if (settings.restore === "never" || !journal.length) return;
+  if (settings.restore === "always") {
+    restoreAll(journal);
+    return;
+  }
+  restorePending = true;
+  $("#restore-text").textContent = t("restoreBannerText").replace(
+    "{n}",
+    String(journal.length),
+  );
+  const yes = $<HTMLButtonElement>("#restore-yes");
+  yes.textContent = t("restoreBtn");
+  yes.onclick = () => restoreAll(journal);
+  $("#restore-close").onclick = () => {
+    restorePending = false;
+    $("#restore-banner").classList.add("hidden");
+  };
+  $("#restore-banner").classList.remove("hidden");
+}
+
 // ── Boot ──────────────────────────────────────────────────
 
 applyTheme();
 applyI18n();
 updateEmptyState();
+maybeRestore();
 refreshCliButtons().then(() => {
   // Auto-launch: warm up Claude Code in the last folder while the user
-  // is still tabbing into their game.
-  if (settings.autoLaunch && sessions.size === 0 && cliAvailable["claude"] !== false) {
+  // is still tabbing into their game. A restored (or restorable) layout
+  // takes precedence — auto-launching next to it would duplicate tabs.
+  if (
+    settings.autoLaunch &&
+    sessions.size === 0 &&
+    !restorePending &&
+    !restoredLayout &&
+    cliAvailable["claude"] !== false
+  ) {
     launchCli("claude", "Claude Code", pickedFolder);
   }
 });
