@@ -23,6 +23,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { CommandBlocks } from "./blocks";
+import { WebKitDeadKeyAddon } from "./xtermDeadKeyAddon";
 
 // ── Themes ────────────────────────────────────────────────
 
@@ -887,6 +888,9 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
 
   const themeDef = THEMES[settings.theme];
   const term = new Terminal({
+    // Needed to reach `term.textarea` below (autocorrect fix) — xterm.js
+    // gates that accessor behind the proposed-API flag at runtime.
+    allowProposedApi: true,
     allowTransparency: true,
     fontFamily: `"${settings.font}", Consolas, Menlo, monospace`,
     fontSize: settings.size,
@@ -940,6 +944,25 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
     (text) => clipWrite(text).catch(() => {}),
   );
   term.open(pane);
+  // xterm.js's hidden input textarea turns off spellcheck/autocapitalize but
+  // not `autocorrect` — a WebKit-only attribute. On macOS that leaves Safari's
+  // predictive-text corrector live on the proxy input, which can silently
+  // re-insert/duplicate the word or phrase just typed a few words in. Windows/
+  // Linux ignore the attribute, so this is a no-op there.
+  term.textarea?.setAttribute("autocorrect", "off");
+  // Separate WebKit feature from autocorrect (Safari/WebKit 18+, macOS
+  // Sequoia): inline predictive "writing suggestions". Confirmed via a
+  // debug write_pty log that this is the actual duplicate-lines cause —
+  // the whole line typed so far gets silently re-emitted as one onData
+  // chunk mid-typing, which the shell echoes as a duplicate. `autocorrect`
+  // alone doesn't cover it; only WebKit honors this attribute.
+  term.textarea?.setAttribute("writingsuggestions", "false");
+  // Works around https://github.com/xtermjs/xterm.js/issues/5894 — on macOS
+  // WKWebView, dead-key layouts (Spanish included) can duplicate the dead
+  // char and drop the following key. See xtermDeadKeyAddon.ts for the full
+  // writeup. `handle()` is wired into attachCustomKeyEventHandler below.
+  const deadKey = new WebKitDeadKeyAddon((data) => invoke("write_pty", { id, data }).catch(() => {}));
+  term.loadAddon(deadKey);
   try {
     term.loadAddon(new WebglAddon());
   } catch {
@@ -1003,6 +1026,7 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   };
 
   term.attachCustomKeyEventHandler((ev) => {
+    if (deadKey.handle(ev)) return false;
     if (ev.type !== "keydown") return true;
     // App-level chords ride Ctrl on Windows/Linux but Cmd on macOS, where
     // Ctrl+F/K/V are readline editing keys the shell must keep receiving.
