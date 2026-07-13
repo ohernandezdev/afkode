@@ -59,6 +59,19 @@ export class CommandBlocks {
     return this.blocks.length > 0 || this.current !== null;
   }
 
+  /**
+   * True while the shell sits at an idle prompt with nothing typed —
+   * the only state where '#' means "ask AI" rather than shell input
+   * (comments, `gh #123` arguments, TUI keybindings…).
+   */
+  atEmptyPrompt(): boolean {
+    const cur = this.current;
+    if (!cur || !cur.input || cur.done || this.running) return false;
+    if (cur.input.line < 0) return false;
+    const buf = this.term.buffer.active;
+    return buf.baseY + buf.cursorY === cur.input.line && buf.cursorX === cur.inputCol;
+  }
+
   dispose() {
     this.disposed = true;
     this.hideToolbar();

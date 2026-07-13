@@ -1349,6 +1349,58 @@ async fn detect_clis(names: Vec<String>) -> Vec<bool> {
         .collect()
 }
 
+/// F3 — AI command search: run the user's installed Claude Code in print
+/// mode to turn natural language into one shell command. The prompt goes
+/// through stdin, never the command line — cmd.exe re-parses argument
+/// strings, so metacharacters in free text would otherwise break the call.
+/// No API keys or network calls of our own: the local CLI carries auth.
+#[tauri::command]
+async fn ask_claude(prompt: String, cwd: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write;
+        use std::process::Stdio;
+        #[cfg(target_os = "windows")]
+        let mut c = {
+            // npm ships claude as a .cmd shim; cmd.exe resolves it.
+            let mut c = std::process::Command::new("cmd.exe");
+            c.args(["/c", "claude", "-p", "--output-format", "text"]);
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            c
+        };
+        #[cfg(not(target_os = "windows"))]
+        let mut c = {
+            let mut c = std::process::Command::new("claude");
+            c.args(["-p", "--output-format", "text"]);
+            c
+        };
+        if let Some(d) = cwd.filter(|d| std::path::Path::new(d).is_dir()) {
+            c.current_dir(d);
+        }
+        c.env("PATH", augmented_path());
+        c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = c.spawn().map_err(|e| format!("spawn: {e}"))?;
+        child
+            .stdin
+            .take()
+            .ok_or("no stdin")?
+            .write_all(prompt.as_bytes())
+            .map_err(|e| e.to_string())?;
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                format!("claude exited with {}", out.status)
+            } else {
+                err
+            });
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PlatformInfo {
@@ -1870,6 +1922,7 @@ pub fn run() {
             hide_palette,
             set_tray_labels,
             detect_clis,
+            ask_claude,
             list_dir,
             save_temp_image,
             clipboard_image_to_temp,

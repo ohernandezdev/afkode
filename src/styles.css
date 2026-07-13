@@ -526,6 +526,76 @@ body {
   height: 22px;
 }
 
+/* ── AI command search strip (F3) ─────────────────────── */
+
+.ask-strip {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(var(--bar-rgb), 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: var(--text-dim);
+}
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-ico {
+  color: var(--accent);
+  font-size: 13px;
+}
+.ask-strip input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.ask-strip input::placeholder {
+  color: #6f7684;
+}
+.ask-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.ask-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ask-cmd {
+  display: block;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 12.5px;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--text);
+}
+.ask-explain {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.ask-status {
+  font-size: 11px;
+  color: #6f7684;
+}
+
 /* ── Inbox panel ───────────────────────────────────────── */
 
 .inbox {

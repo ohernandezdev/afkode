@@ -341,6 +341,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     linkOpening: "Abriendo enlace en tu navegador…",
     linkOpenFailed: "No pude abrir el navegador — copié el enlace, pégalo donde quieras",
     noBlockToCopy: "No hay ningún bloque terminado que copiar",
+    askPlaceholder: "Describe el comando que necesitas…",
+    askHint: "Enter pregunta · Esc cierra",
+    askThinking: "Preguntando a Claude…",
+    askResultHint: "Enter inserta (no ejecuta) · Ctrl+E explica · Esc cierra",
+    askMissing: "Claude Code no está instalado — el asistente de configuración se abre al reiniciar AFKode, o instálalo con: npm install -g @anthropic-ai/claude-code",
+    askInsert: "Insertar",
+    askExplainBtn: "Explicar",
+    aiSearchLabel: "Búsqueda IA de comandos (# / Ctrl+Espacio)",
+    aiSearchNote: "En pestañas de shell, # en un prompt vacío pide un comando a tu Claude Code instalado. Nunca se ejecuta solo: siempre se inserta para que lo revises.",
     pastedImageInstead: "Tu clipboard no tenía texto, así que pegué una imagen en su lugar",
     filePreviewError: "No se pudo abrir el archivo",
     filePreviewNotFoundBare:
@@ -439,6 +448,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     linkOpening: "Opening link in your browser…",
     linkOpenFailed: "Couldn't open your browser — copied the link, paste it anywhere",
     noBlockToCopy: "No finished block to copy yet",
+    askPlaceholder: "Describe the command you need…",
+    askHint: "Enter asks · Esc closes",
+    askThinking: "Asking Claude…",
+    askResultHint: "Enter inserts (never runs) · Ctrl+E explains · Esc closes",
+    askMissing: "Claude Code isn't installed — the setup wizard opens when you restart AFKode, or install it with: npm install -g @anthropic-ai/claude-code",
+    askInsert: "Insert",
+    askExplainBtn: "Explain",
+    aiSearchLabel: "AI command search (# / Ctrl+Space)",
+    aiSearchNote: "In shell tabs, # at an empty prompt asks your installed Claude Code for a command. It never runs by itself — it's inserted for you to review.",
     pastedImageInstead: "Your clipboard had no text, so an image got pasted instead",
     filePreviewError: "Couldn't open the file",
     filePreviewNotFoundBare:
@@ -537,6 +555,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     linkOpening: "Ouverture du lien dans votre navigateur…",
     linkOpenFailed: "Impossible d'ouvrir le navigateur — lien copié, collez-le où vous voulez",
     noBlockToCopy: "Aucun bloc terminé à copier",
+    askPlaceholder: "Décrivez la commande dont vous avez besoin…",
+    askHint: "Entrée demande · Échap ferme",
+    askThinking: "Je demande à Claude…",
+    askResultHint: "Entrée insère (n'exécute jamais) · Ctrl+E explique · Échap ferme",
+    askMissing: "Claude Code n'est pas installé — l'assistant de configuration s'ouvre au redémarrage d'AFKode, ou installez-le avec : npm install -g @anthropic-ai/claude-code",
+    askInsert: "Insérer",
+    askExplainBtn: "Expliquer",
+    aiSearchLabel: "Recherche IA de commandes (# / Ctrl+Espace)",
+    aiSearchNote: "Dans les onglets shell, # sur un prompt vide demande une commande à votre Claude Code installé. Elle n'est jamais exécutée seule : elle est insérée pour relecture.",
     pastedImageInstead: "Votre presse-papiers ne contenait pas de texte, une image a donc été collée à la place",
     filePreviewError: "Impossible d'ouvrir le fichier",
     filePreviewNotFoundBare:
@@ -635,6 +662,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     linkOpening: "Apertura del link nel browser…",
     linkOpenFailed: "Impossibile aprire il browser — link copiato, incollalo dove vuoi",
     noBlockToCopy: "Nessun blocco terminato da copiare",
+    askPlaceholder: "Descrivi il comando di cui hai bisogno…",
+    askHint: "Invio chiede · Esc chiude",
+    askThinking: "Sto chiedendo a Claude…",
+    askResultHint: "Invio inserisce (mai eseguito) · Ctrl+E spiega · Esc chiude",
+    askMissing: "Claude Code non è installato — la procedura guidata si apre al riavvio di AFKode, oppure installalo con: npm install -g @anthropic-ai/claude-code",
+    askInsert: "Inserisci",
+    askExplainBtn: "Spiega",
+    aiSearchLabel: "Ricerca comandi IA (# / Ctrl+Spazio)",
+    aiSearchNote: "Nelle schede shell, # su un prompt vuoto chiede un comando al tuo Claude Code installato. Non viene mai eseguito da solo: viene inserito per la revisione.",
     pastedImageInstead: "Gli appunti non contenevano testo, quindi è stata incollata un'immagine",
     filePreviewError: "Impossibile aprire il file",
     filePreviewNotFoundBare:
@@ -676,6 +712,7 @@ interface Settings {
   matchMode: boolean;
   tts: boolean;
   overlayMode: boolean;
+  aiSearch: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -691,6 +728,7 @@ const DEFAULTS: Settings = {
   matchMode: true,
   tts: false,
   overlayMode: true,
+  aiSearch: true,
 };
 
 function loadSettings(): Settings {
@@ -900,6 +938,9 @@ function updateStatus() {
 }
 
 function setActive(id: string) {
+  // The ask strip belongs to one session; don't leave it floating over
+  // another tab where Insert would type into the wrong shell.
+  if (askSession && askSession.id !== id) closeAskStrip();
   activeId = id;
   for (const s of sessions.values()) {
     s.pane.classList.toggle("active", s.id === id);
@@ -929,6 +970,7 @@ function setActive(id: string) {
 function closeSession(id: string) {
   const s = sessions.get(id);
   if (!s) return;
+  if (askSession?.id === id) closeAskStrip();
   sessions.delete(id);
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
   s.blocks.dispose();
@@ -1181,6 +1223,21 @@ async function newSession(cmd: string, baseTitle: string, cwd: string | null) {
   term.attachCustomKeyEventHandler((ev) => {
     if (deadKey.handle(ev)) return false;
     if (ev.type !== "keydown") return true;
+    // AI command search (F3) — shell tabs only, so agent TUIs never see it.
+    // '#' only fires at a verifiably idle, empty prompt (OSC 133 state);
+    // Ctrl+Space works regardless, as the explicit opt-in gesture.
+    if (!cmd && settings.aiSearch) {
+      const hash =
+        ev.key === "#" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && blocks.atEmptyPrompt();
+      const chord =
+        ev.code === "Space" && ev.ctrlKey && !ev.metaKey && !ev.shiftKey && !ev.altKey;
+      if (hash || chord) {
+        ev.preventDefault();
+        const s = sessions.get(id);
+        if (s) openAskStrip(s);
+        return false;
+      }
+    }
     // App-level chords ride Ctrl on Windows/Linux but Cmd on macOS, where
     // Ctrl+F/K/V are readline editing keys the shell must keep receiving.
     const mod = isMac() ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey;
@@ -2293,7 +2350,7 @@ selLang.addEventListener("change", () => {
 
 function wireSwitch(
   sel: string,
-  key: "notify" | "sound" | "hud" | "autoLaunch" | "hooks" | "matchMode" | "tts",
+  key: "notify" | "sound" | "hud" | "autoLaunch" | "hooks" | "matchMode" | "tts" | "aiSearch",
 ) {
   const el = $<HTMLInputElement>(sel);
   el.checked = settings[key];
@@ -2308,6 +2365,7 @@ wireSwitch("#chk-hud", "hud");
 wireSwitch("#chk-autolaunch", "autoLaunch");
 wireSwitch("#chk-hooks", "hooks");
 wireSwitch("#chk-matchmode", "matchMode");
+wireSwitch("#chk-aisearch", "aiSearch");
 
 const chkOverlayMode = $<HTMLInputElement>("#chk-overlaymode");
 chkOverlayMode.checked = settings.overlayMode;
@@ -2861,6 +2919,143 @@ window.addEventListener("unhandledrejection", (e) =>
   surfaceError(String(e.reason).slice(0, 300)),
 );
 window.addEventListener("error", (e) => surfaceError(String(e.message).slice(0, 300)));
+
+// ── AI command search (F3): '#' / Ctrl+Space in shell tabs ─
+//
+// Natural language → one shell command via the user's installed Claude
+// Code in print mode (`claude -p`, invoked in Rust). The result is only
+// ever *inserted* at the prompt — no trailing newline, never executed.
+
+const askStrip = $("#ask-strip");
+const askInput = $<HTMLInputElement>("#ask-input");
+const askCmdEl = $("#ask-cmd");
+const askExplainEl = $("#ask-explain");
+const askStatusEl = $("#ask-status");
+const askInsertBtn = $<HTMLButtonElement>("#ask-insert");
+const askExplainBtn = $<HTMLButtonElement>("#ask-explain-btn");
+
+let askSession: Session | null = null;
+let askCommand = "";
+let askLastQuery = "";
+// Sequence guard: closing the strip or asking again must orphan any reply
+// still in flight (claude -p can take seconds).
+let askSeq = 0;
+
+function openAskStrip(s: Session) {
+  askSession = s;
+  askCommand = "";
+  askLastQuery = "";
+  askInput.value = "";
+  askInput.placeholder = t("askPlaceholder");
+  askCmdEl.classList.add("hidden");
+  askExplainEl.classList.add("hidden");
+  askInsertBtn.classList.add("hidden");
+  askExplainBtn.classList.add("hidden");
+  askStatusEl.textContent = t("askHint");
+  askStrip.classList.remove("hidden");
+  askInput.focus();
+}
+
+function closeAskStrip() {
+  askSeq++;
+  askStrip.classList.add("hidden");
+  askSession?.term.focus();
+  askSession = null;
+}
+
+function shellLang(): string {
+  return platform.os === "windows" ? "powershell" : "bash";
+}
+
+// claude -p tends to wrap code in fences despite instructions; unwrap.
+function stripFences(s: string): string {
+  return s
+    .replace(/^```[a-z]*\s*\n?/i, "")
+    .replace(/\n?```\s*$/, "")
+    .trim();
+}
+
+async function runAsk() {
+  const q = askInput.value.trim();
+  if (!q || !askSession) return;
+  const seq = ++askSeq;
+  askLastQuery = q;
+  askStatusEl.textContent = t("askThinking");
+  askCmdEl.classList.add("hidden");
+  askExplainEl.classList.add("hidden");
+  askInsertBtn.classList.add("hidden");
+  askExplainBtn.classList.add("hidden");
+  const target =
+    platform.os === "windows" ? "ONE PowerShell command for Windows" : "ONE POSIX shell command";
+  const prompt =
+    `You translate a request into exactly ${target}. ` +
+    `Reply with the command only — no prose, no code fences, no explanation.\n\nRequest: ${q}`;
+  try {
+    const res = await invoke<string>("ask_claude", { prompt, cwd: askSession.cwd });
+    if (seq !== askSeq) return;
+    askCommand = stripFences(res);
+    const lang = shellLang();
+    askCmdEl.innerHTML = hljs.getLanguage(lang)
+      ? DOMPurify.sanitize(hljs.highlight(askCommand, { language: lang }).value)
+      : "";
+    if (!askCmdEl.innerHTML) askCmdEl.textContent = askCommand;
+    askCmdEl.classList.remove("hidden");
+    askInsertBtn.classList.remove("hidden");
+    askExplainBtn.classList.remove("hidden");
+    askStatusEl.textContent = t("askResultHint");
+  } catch (err) {
+    if (seq !== askSeq) return;
+    // A spawn failure means the binary wasn't found — point at the wizard.
+    const missing = cliAvailable["claude"] === false || /^spawn:/.test(String(err));
+    askStatusEl.textContent = missing ? `⚠ ${t("askMissing")}` : `⚠ ${String(err).slice(0, 200)}`;
+  }
+}
+
+function askInsert() {
+  if (!askCommand || !askSession) return;
+  invoke("write_pty", { id: askSession.id, data: askCommand }).catch(() => {});
+  closeAskStrip();
+}
+
+async function askExplain() {
+  if (!askCommand || !askSession) return;
+  if (!askExplainEl.classList.contains("hidden")) {
+    askExplainEl.classList.add("hidden");
+    return;
+  }
+  const seq = askSeq;
+  askExplainEl.textContent = "…";
+  askExplainEl.classList.remove("hidden");
+  try {
+    const res = await invoke<string>("ask_claude", {
+      prompt: `Explain briefly (2-3 sentences, plain text, same language as this UI locale: ${settings.lang}) what this ${shellLang()} command does:\n${askCommand}`,
+      cwd: askSession.cwd,
+    });
+    if (seq !== askSeq) return;
+    askExplainEl.textContent = res;
+  } catch (err) {
+    if (seq !== askSeq) return;
+    askExplainEl.textContent = `⚠ ${String(err).slice(0, 200)}`;
+  }
+}
+
+askInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    // Same question with a result on screen → insert; anything else → ask.
+    if (askCommand && askInput.value.trim() === askLastQuery) askInsert();
+    else runAsk();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeAskStrip();
+  } else if (e.key.toLowerCase() === "e" && e.ctrlKey) {
+    e.preventDefault();
+    askExplain();
+  }
+});
+askInsertBtn.addEventListener("click", askInsert);
+askExplainBtn.addEventListener("click", () => askExplain());
+$("#ask-close").addEventListener("click", closeAskStrip);
 
 // ── Palette '>' actions ────────────────────────────────────
 //
