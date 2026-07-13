@@ -41,7 +41,7 @@ An in-game overlay to supervise AI coding agents — Claude Code, OpenCode, Code
 | **macOS** | Download the `.dmg` from [Releases](https://github.com/ohernandezdev/afkode/releases), drag to Applications. Unsigned for now: right-click → Open on first launch (or `xattr -dr com.apple.quarantine /Applications/AFKode.app`) |
 | **Linux** | `.AppImage` (self-updating) or `.deb`/`.rpm` from [Releases](https://github.com/ohernandezdev/afkode/releases) |
 
-AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts). First run opens a guided wizard that installs Node.js and Claude Code for you if they're missing.
+AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts). Agent CLIs (Claude Code, OpenCode, Codex) are detected on your system; install the ones you want with their official instructions and their launcher buttons appear.
 
 ## Hotkeys
 
@@ -88,7 +88,7 @@ On macOS, `Ctrl+F`, `Ctrl+K` and `Ctrl+V` pass through to the shell (they are re
 - **Command blocks (Warp-style)**: shell tabs group each command + its output into a block via OSC 133 shell integration (injected at spawn — your profile files are never edited). Colored gutter per block (green ✓ / red ✗), hover toolbar (copy command/output/both, re-run), keyboard navigation. Automatic for PowerShell (Windows), bash (Linux) and zsh (macOS/Linux); [other shells can opt in](#command-blocks-in-other-shells). Agent TUI tabs are unaffected.
 - **Tabs**: parallel sessions (Claude Code, OpenCode, Codex, your shell) — rename, color tags, live state dots, `Ctrl+K` session search.
 - **Git footer**: branch, `+added/-removed` and dirty indicator for the active session's folder.
-- **CLI detection & one-click install**: launchers detect installed agents; missing ones install with one click. First-run wizard handles Node.js + Claude Code + login.
+- **CLI detection**: launchers offer exactly the agents installed on your system — undetected CLIs simply don't get a button.
 - **Clipboard image paste**: `Ctrl+V` with a screenshot on the clipboard saves it to a temp PNG and hands the path to the agent.
 
 ### Made to disappear
@@ -113,7 +113,6 @@ AFKode is Windows-first; macOS and Linux builds ship from the same codebase with
 | Voice announcements (TTS) | ✅ WebView2 speech | ✅ `say` | ⚠️ `spd-say` (speech-dispatcher); toggle hidden if missing |
 | Notifications | ✅ toasts | ✅ (allow in System Settings) | ✅ (libnotify) |
 | Memory saver on hide (working-set trim + low-memory webview) | ✅ | ❌ automatic no-op | ❌ automatic no-op |
-| Setup wizard Node.js install | ✅ winget | ⚠️ Homebrew if present | ⚠️ apt/dnf (needs sudo password in the tab) |
 | Clipboard image paste to agent | ✅ | ✅ AppleScript | ⚠️ needs `wl-paste` or `xclip` |
 | Tray icon | ✅ | ✅ menu bar | ✅ (needs an appindicator-capable desktop) |
 | Auto-updater (signed artifacts) | ✅ NSIS | ✅ `.app.tar.gz` (manual install via `.dmg`) | ✅ AppImage only (deb/rpm update via package manager) |

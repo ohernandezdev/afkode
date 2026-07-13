@@ -917,84 +917,6 @@ body {
   direction: rtl;
 }
 
-/* ── Setup wizard ──────────────────────────────────────── */
-
-.wiz-step {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 10px 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-.wiz-step:last-child {
-  border-bottom: 0;
-}
-.wiz-ico {
-  width: 22px;
-  font-size: 15px;
-  text-align: center;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-.wiz-ico.ok {
-  color: #67c987;
-}
-.wiz-ico.busy {
-  color: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-.wiz-info {
-  flex: 1;
-  min-width: 0;
-}
-.wiz-info b {
-  display: block;
-  font-size: 12.5px;
-  color: var(--text);
-}
-.wiz-note {
-  display: block;
-  font-size: 11px;
-  color: var(--text-dim);
-  line-height: 1.4;
-}
-.wiz-step button[disabled] {
-  opacity: 0.35;
-  pointer-events: none;
-}
-
-.wiz-log-wrap {
-  margin-top: 8px;
-  padding: 10px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
-}
-.wiz-log-status {
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.wiz-log-status.running {
-  color: var(--text-dim);
-}
-.wiz-log-status.ok {
-  color: #67c987;
-}
-.wiz-log-status.fail {
-  color: #e06c75;
-}
-.wiz-log {
-  max-height: 160px;
-  overflow-y: auto;
-  margin: 0;
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .launchers {
   display: flex;
   flex-wrap: wrap;
@@ -1066,18 +988,6 @@ body {
 #claude-args::placeholder {
   color: #6f7684;
   font-family: "Segoe UI", system-ui, sans-serif;
-}
-
-button.missing {
-  opacity: 0.55;
-}
-button.missing .mi {
-  background: #e5c07b !important;
-}
-button.missing::after {
-  content: "↓";
-  font-size: 11px;
-  color: #e5c07b;
 }
 
 /* ── Status bar ────────────────────────────────────────── */

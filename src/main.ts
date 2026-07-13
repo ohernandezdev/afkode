@@ -311,23 +311,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Elige la carpeta del proyecto",
     emptyTitle: "¿Dónde quieres trabajar?",
     noFolder: "Elegir carpeta… (por defecto: inicio)",
-    wizTitle: "Configurar Claude Code",
-    wizIntro:
-      "AFKode necesita dos piezas para funcionar. Este asistente las instala por ti — cada paso abre una pestaña donde puedes ver el progreso.",
-    wizStep1: "Node.js",
-    wizStep1Note: "El motor que necesita Claude Code. Se instala con winget (instalador oficial de Windows).",
-    wizStep2: "Claude Code",
-    wizStep2Note: "El agente de IA de Anthropic. Se instala con npm.",
-    wizStep3: "Todo listo",
-    wizStep3Note:
-      "Nota: si es tu primera vez, el propio Claude Code te pedirá iniciar sesión al abrirse (abre tu navegador y entra con tu cuenta) — eso lo gestiona Claude, no AFKode.",
-    wizInstall: "Instalar",
-    wizLaunch: "Abrir Claude Code",
-    wizInstalling: "Instalando",
-    wizInstallRunning: "Instalando… (el log de abajo se actualiza en vivo)",
-    wizInstallOk: "✓ Instalado correctamente",
-    wizInstallFailed: "✗ Falló la instalación — revisa el detalle arriba",
-    wizInstallTimeout: "✗ Se colgó sin responder — puedes reintentar o instalarlo manualmente",
     argsPlaceholder: "Flags extra para Claude Code (se aplican al lanzar)…",
     starting: "Iniciando",
     notifications: "Notificaciones",
@@ -335,8 +318,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     notifWaiting: "está esperando tu respuesta",
     notifDone: "parece haber terminado",
     notifExit: "sesión finalizada",
-    installHint: "no instalado — clic para instalarlo",
-    installing: "Instalando",
     hud: "Mini-HUD (píldora de estado)",
     autoLaunch: "Auto-lanzar Claude al iniciar",
     hooksLabel: "Integración con Claude Code",
@@ -427,23 +408,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Choose project folder",
     emptyTitle: "Where do you want to work?",
     noFolder: "Choose folder… (default: home)",
-    wizTitle: "Set up Claude Code",
-    wizIntro:
-      "AFKode needs two pieces to work. This wizard installs them for you — each step opens a tab where you can watch the progress.",
-    wizStep1: "Node.js",
-    wizStep1Note: "The engine Claude Code runs on. Installed via winget (official Windows installer).",
-    wizStep2: "Claude Code",
-    wizStep2Note: "Anthropic's AI coding agent. Installed via npm.",
-    wizStep3: "All set",
-    wizStep3Note:
-      "Note: on first run Claude Code itself will ask you to sign in (your browser opens, log in with your account) — that part is handled by Claude, not AFKode.",
-    wizInstall: "Install",
-    wizLaunch: "Open Claude Code",
-    wizInstalling: "Installing",
-    wizInstallRunning: "Installing… (the log below updates live)",
-    wizInstallOk: "✓ Installed successfully",
-    wizInstallFailed: "✗ Install failed — check the log above",
-    wizInstallTimeout: "✗ It hung with no response — you can retry or install it manually",
     argsPlaceholder: "Extra flags for Claude Code (applied on launch)…",
     starting: "Starting",
     notifications: "Notifications",
@@ -451,8 +415,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     notifWaiting: "is waiting for your input",
     notifDone: "seems to be done",
     notifExit: "session ended",
-    installHint: "not installed — click to install it",
-    installing: "Installing",
     hud: "Mini-HUD (status pill)",
     autoLaunch: "Auto-launch Claude on start",
     hooksLabel: "Claude Code integration",
@@ -543,23 +505,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Choisissez le dossier du projet",
     emptyTitle: "Où voulez-vous travailler ?",
     noFolder: "Choisir un dossier… (par défaut : accueil)",
-    wizTitle: "Configurer Claude Code",
-    wizIntro:
-      "AFKode a besoin de deux éléments pour fonctionner. Cet assistant les installe pour vous — chaque étape ouvre un onglet où vous pouvez suivre la progression.",
-    wizStep1: "Node.js",
-    wizStep1Note: "Le moteur dont Claude Code a besoin. Installé via winget (installateur officiel de Windows).",
-    wizStep2: "Claude Code",
-    wizStep2Note: "L'agent de codage IA d'Anthropic. Installé via npm.",
-    wizStep3: "Tout est prêt",
-    wizStep3Note:
-      "Remarque : à la première utilisation, Claude Code vous demandera de vous connecter (votre navigateur s'ouvre, connectez-vous avec votre compte) — cette partie est gérée par Claude, pas par AFKode.",
-    wizInstall: "Installer",
-    wizLaunch: "Ouvrir Claude Code",
-    wizInstalling: "Installation",
-    wizInstallRunning: "Installation… (le journal ci-dessous se met à jour en direct)",
-    wizInstallOk: "✓ Installé avec succès",
-    wizInstallFailed: "✗ L'installation a échoué — vérifiez le journal ci-dessus",
-    wizInstallTimeout: "✗ Bloqué sans réponse — vous pouvez réessayer ou l'installer manuellement",
     argsPlaceholder: "Options supplémentaires pour Claude Code (appliquées au lancement)…",
     starting: "Démarrage",
     notifications: "Notifications",
@@ -567,8 +512,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     notifWaiting: "attend votre réponse",
     notifDone: "semble avoir terminé",
     notifExit: "session terminée",
-    installHint: "non installé — cliquez pour l'installer",
-    installing: "Installation",
     hud: "Mini-HUD (pastille d'état)",
     autoLaunch: "Lancer Claude automatiquement au démarrage",
     hooksLabel: "Intégration avec Claude Code",
@@ -659,23 +602,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     pickFolder: "Scegli la cartella del progetto",
     emptyTitle: "Dove vuoi lavorare?",
     noFolder: "Scegli cartella… (predefinita: home)",
-    wizTitle: "Configura Claude Code",
-    wizIntro:
-      "AFKode ha bisogno di due componenti per funzionare. Questa procedura li installa per te — ogni passaggio apre una scheda dove puoi seguire i progressi.",
-    wizStep1: "Node.js",
-    wizStep1Note: "Il motore di cui Claude Code ha bisogno. Installato con winget (installer ufficiale di Windows).",
-    wizStep2: "Claude Code",
-    wizStep2Note: "L'agente di coding IA di Anthropic. Installato con npm.",
-    wizStep3: "Tutto pronto",
-    wizStep3Note:
-      "Nota: al primo avvio Claude Code ti chiederà di accedere (si apre il browser, entra con il tuo account) — quella parte la gestisce Claude, non AFKode.",
-    wizInstall: "Installa",
-    wizLaunch: "Apri Claude Code",
-    wizInstalling: "Installazione",
-    wizInstallRunning: "Installazione… (il log qui sotto si aggiorna in tempo reale)",
-    wizInstallOk: "✓ Installato correttamente",
-    wizInstallFailed: "✗ Installazione non riuscita — controlla il log qui sopra",
-    wizInstallTimeout: "✗ Bloccato senza risposta — puoi riprovare o installarlo manualmente",
     argsPlaceholder: "Flag extra per Claude Code (applicati all'avvio)…",
     starting: "Avvio",
     notifications: "Notifiche",
@@ -683,8 +609,6 @@ const I18N: Record<Lang, Record<string, string>> = {
     notifWaiting: "sta aspettando la tua risposta",
     notifDone: "sembra aver finito",
     notifExit: "sessione terminata",
-    installHint: "non installato — clicca per installarlo",
-    installing: "Installazione",
     hud: "Mini-HUD (indicatore di stato)",
     autoLaunch: "Avvia Claude automaticamente all'apertura",
     hooksLabel: "Integrazione con Claude Code",
@@ -909,6 +833,9 @@ function updateEmptyState() {
   const show = sessions.size === 0 || forceEmptyState;
   emptyState.classList.toggle("hidden", !show);
   $("#empty-state-close").classList.toggle("hidden", sessions.size === 0);
+  // Re-detect on every open so a CLI installed manually mid-session gets
+  // its launcher button without restarting the app.
+  if (show) refreshCliButtons();
 }
 
 function updatePickedFolderLabel() {
@@ -999,16 +926,6 @@ function closeSession(id: string) {
   const s = sessions.get(id);
   if (!s) return;
   sessions.delete(id);
-  // Closing the wizard's install tab means its pty-exit will early-return
-  // (session gone from the map) — resolve the wizard state here instead of
-  // leaving it stuck on "Installing…" with its button disabled forever.
-  if (id === wizActiveSessionId) {
-    wizActiveSessionId = null;
-    wizBusy = 0;
-    wizLogStatus.textContent = t("wizInstallFailed");
-    wizLogStatus.className = "wiz-log-status fail";
-    wizardRefresh();
-  }
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
   s.blocks.dispose();
   s.term.dispose();
@@ -1856,10 +1773,6 @@ listen<{ id: string; data: string }>("pty-output", (e) => {
   s.tail = (s.tail + e.payload.data).slice(-4000);
   s.notifiedWaiting = false;
   s.notifiedDone = false;
-  if (e.payload.id === wizActiveSessionId) {
-    wizLogEl.textContent = stripAnsi(s.tail);
-    wizLogEl.scrollTop = wizLogEl.scrollHeight;
-  }
 });
 
 listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
@@ -1877,53 +1790,7 @@ listen<{ id: string; exit_code?: number }>("pty-exit", (e) => {
     notify(s, "notifExit");
   }
   refreshCliButtons();
-  if (e.payload.id === wizActiveSessionId) {
-    wizActiveSessionId = null;
-    // winget/npm exit codes are noisy (e.g. winget can exit non-zero for
-    // "already up to date, nothing to do") — check whether the tool is
-    // actually there now instead of trusting the raw exit code.
-    const tool = wizBusy === 1 ? "node" : "claude";
-    // Reset busy only for the wizard's own session: an unrelated tab
-    // exiting mid-install must not re-enable the Install button (a second
-    // click would spawn a concurrent duplicate install). Refresh even when
-    // the modal is hidden so reopening it never shows a stale busy step.
-    wizBusy = 0;
-    invoke<boolean[]>("detect_clis", { names: [tool] })
-      .then(([found]) => {
-        wizLogStatus.textContent = found ? t("wizInstallOk") : t("wizInstallFailed");
-        wizLogStatus.className = `wiz-log-status ${found ? "ok" : "fail"}`;
-      })
-      .catch(() => {
-        wizLogStatus.textContent = t("wizInstallFailed");
-        wizLogStatus.className = "wiz-log-status fail";
-      });
-    wizardRefresh();
-  }
 });
-
-// winget in particular has known hangs inside non-standard PTYs (it can
-// sit forever after its last printed line instead of exiting) — bound how
-// long the wizard waits instead of leaving "Instalando…" stuck forever.
-// The bound is deliberately generous: npm/winget have perfectly normal
-// silent phases (dependency resolution, extraction) well over 5 s, and
-// killing a live install mid-flight is far worse than waiting a minute
-// to declare a hang.
-const WIZ_SILENCE_KILL_MS = 60_000;
-setInterval(() => {
-  if (!wizActiveSessionId) return;
-  const s = sessions.get(wizActiveSessionId);
-  if (!s?.alive) return;
-  if (Date.now() - s.lastData > WIZ_SILENCE_KILL_MS) {
-    invoke("kill_pty", { id: wizActiveSessionId }).catch(() => {});
-    wizLogStatus.textContent = t("wizInstallTimeout");
-    wizLogStatus.className = "wiz-log-status fail";
-    wizActiveSessionId = null;
-    // The pty-exit that follows no longer matches (id already nulled) —
-    // resolve the busy state here or the step stays stuck spinning.
-    wizBusy = 0;
-    wizardRefresh();
-  }
-}, 1000);
 
 listen<boolean>("ghost-mode", (e) => {
   const on = e.payload;
@@ -2464,13 +2331,9 @@ chkTts.addEventListener("change", () => {
     );
 });
 
-// ── CLI detection & one-click install ─────────────────────
+// ── CLI detection ─────────────────────────────────────────
 
-const CLI_INSTALL: Record<string, string> = {
-  claude: "npm install -g @anthropic-ai/claude-code",
-  opencode: "npm install -g opencode-ai",
-  codex: "npm install -g @openai/codex",
-};
+const CLI_NAMES = ["claude", "opencode", "codex"];
 
 const cliAvailable: Record<string, boolean> = {};
 
@@ -2478,20 +2341,19 @@ function cliButtons(): HTMLButtonElement[] {
   return [...document.querySelectorAll<HTMLButtonElement>("button[data-cmd]")];
 }
 
+// Launchers only offer CLIs that are actually on the system: undetected
+// ones are hidden, not shown greyed-out with an install affordance.
 async function refreshCliButtons() {
-  const names = Object.keys(CLI_INSTALL);
   try {
-    const found = await invoke<boolean[]>("detect_clis", { names });
-    names.forEach((n, i) => (cliAvailable[n] = found[i]));
+    const found = await invoke<boolean[]>("detect_clis", { names: CLI_NAMES });
+    CLI_NAMES.forEach((n, i) => (cliAvailable[n] = found[i]));
   } catch {
     return; // backend without detect_clis: leave buttons as-is
   }
   for (const b of cliButtons()) {
     const cmd = b.dataset.cmd ?? "";
     if (!cmd) continue;
-    const ok = cliAvailable[cmd] ?? true;
-    b.classList.toggle("missing", !ok);
-    b.title = ok ? "" : `${b.dataset.name}: ${t("installHint")}`;
+    b.classList.toggle("hidden", cliAvailable[cmd] === false);
   }
 }
 
@@ -2530,109 +2392,8 @@ function claudeCmd(): string {
 
 function launchCli(cmd: string, name: string, cwd: string | null) {
   if (cmd === "claude") cmd = claudeCmd();
-  if (cmd.startsWith("claude") && cliAvailable["claude"] === false) {
-    // Missing Claude: the guided wizard handles Node + install + login.
-    openWizard();
-    return;
-  }
-  if (cmd && cliAvailable[cmd] === false) {
-    // Missing CLI: open a tab that installs it; buttons refresh on exit.
-    newSession(CLI_INSTALL[cmd], `${t("installing")} ${name}…`, null);
-    return;
-  }
   newSession(cmd, name, cwd);
 }
-
-// ── First-run setup wizard ────────────────────────────────
-
-// --source winget: on machines with multiple configured sources (msstore
-// also ships a matching "Node.js (LTS)" package), winget refuses to guess
-// and just prints the ambiguity instead of installing.
-function nodeInstallCmd(): string {
-  if (platform.os === "macos")
-    return "brew install node || echo 'Homebrew not found — install Node.js from https://nodejs.org and re-run this step'";
-  if (platform.os === "linux")
-    return "sudo apt-get install -y nodejs npm || sudo dnf install -y nodejs || echo 'Install Node.js with your distro package manager, then re-run this step'";
-  return "winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements";
-}
-
-const wizardModal = $("#wizard-modal");
-let wizBusy = 0; // step currently installing (0 = none)
-const wizLogWrap = $("#wiz-log-wrap");
-const wizLogEl = $("#wiz-log");
-const wizLogStatus = $("#wiz-log-status");
-let wizActiveSessionId: string | null = null;
-
-function openWizard() {
-  // No live install session ⇒ nothing can legitimately be busy; clears a
-  // stale flag if the modal was closed mid-install in an earlier state.
-  if (!wizActiveSessionId) wizBusy = 0;
-  wizardModal.classList.remove("hidden");
-  wizardRefresh();
-}
-
-async function wizardRefresh() {
-  let nodeOk = false;
-  let claudeOk = false;
-  try {
-    const found = await invoke<boolean[]>("detect_clis", { names: ["node", "claude"] });
-    nodeOk = found[0];
-    claudeOk = found[1];
-    cliAvailable["claude"] = claudeOk;
-  } catch {
-    return;
-  }
-  const states: [boolean, boolean, boolean] = [nodeOk, claudeOk, claudeOk];
-  for (let i = 1; i <= 3; i++) {
-    const ico = $(`#wiz-ico-${i}`);
-    const btn = $<HTMLButtonElement>(`#wiz-btn-${i}`);
-    const done = i < 3 ? states[i - 1] : false;
-    const busy = wizBusy === i;
-    ico.textContent = done ? "✓" : busy ? "●" : "○";
-    ico.className = `wiz-ico${done ? " ok" : busy ? " busy" : ""}`;
-    const enabled =
-      !busy &&
-      ((i === 1 && !nodeOk) ||
-        (i === 2 && nodeOk && !claudeOk) ||
-        (i === 3 && claudeOk));
-    btn.disabled = !enabled;
-    if (i === 3 && claudeOk) ico.textContent = "→";
-  }
-}
-
-function wizardRunStep(step: number, cmd: string, title: string) {
-  wizBusy = step;
-  wizardRefresh();
-  wizLogWrap.classList.remove("hidden");
-  wizLogEl.textContent = "";
-  wizLogStatus.textContent = t("wizInstallRunning");
-  wizLogStatus.className = "wiz-log-status running";
-  // newSession is async and doesn't assign the session id until it awaits
-  // spawn_pty — a fast command (e.g. "already installed, nothing to do")
-  // can fire its pty-exit event before that promise resolves, so the exit
-  // handler below would race a wizActiveSessionId that's still null and
-  // miss it entirely. newSession assigns ids as `s${++counter}`, so the id
-  // it's about to use can be predicted synchronously, before anything else
-  // can happen.
-  wizActiveSessionId = `s${counter + 1}`;
-  newSession(cmd, `${t("wizInstalling")} ${title}…`, null);
-}
-
-$("#wiz-btn-1").addEventListener("click", () =>
-  wizardRunStep(1, nodeInstallCmd(), "Node.js"),
-);
-$("#wiz-btn-2").addEventListener("click", () =>
-  wizardRunStep(2, CLI_INSTALL.claude, "Claude Code"),
-);
-$("#wiz-btn-3").addEventListener("click", () => {
-  wizardModal.classList.add("hidden");
-  localStorage.setItem("wizard-done", "1");
-  newSession("claude", "Claude Code", pickedFolder);
-});
-$("#wiz-close").addEventListener("click", () => {
-  wizardModal.classList.add("hidden");
-  localStorage.setItem("wizard-done", "1");
-});
 
 // ── Toolbar ───────────────────────────────────────────────
 
@@ -3103,11 +2864,6 @@ applyTheme();
 applyI18n();
 updateEmptyState();
 refreshCliButtons().then(() => {
-  // First run without Claude installed: open the guided setup.
-  if (cliAvailable["claude"] === false && !localStorage.getItem("wizard-done")) {
-    openWizard();
-    return;
-  }
   // Auto-launch: warm up Claude Code in the last folder while the user
   // is still tabbing into their game.
   if (settings.autoLaunch && sessions.size === 0 && cliAvailable["claude"] !== false) {

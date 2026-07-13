@@ -772,8 +772,8 @@ async fn spawn_pty(
             b.args(["-c", &script]);
             b
         } else {
-            // Arbitrary command (setup wizard installs, other agent CLIs):
-            // hand the raw line to the shell, matching cmd.exe /c semantics.
+            // Arbitrary command (other agent CLIs): hand the raw line to
+            // the shell, matching cmd.exe /c semantics.
             b.args(["-c", trimmed]);
             b
         }
@@ -954,9 +954,8 @@ async fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> 
 /// single tab open would slow down plain shell tabs that don't need it, so
 /// a successful result is cached — npm's persisted prefix doesn't change
 /// mid-session. A *failed* lookup (npm not installed yet) is deliberately
-/// NOT cached: that's exactly the case this exists for — Node/npm getting
-/// installed mid-session via the setup wizard — and caching `None` forever
-/// would permanently defeat it.
+/// NOT cached: npm can be installed manually mid-session, and caching
+/// `None` forever would hide its global bin dir until an app restart.
 static NPM_PREFIX_CACHE: Mutex<Option<String>> = Mutex::new(None);
 
 fn npm_prefix() -> Option<String> {
@@ -1017,9 +1016,9 @@ fn newest_nvm_bin(home: &str) -> Option<String> {
         .map(|(_, p)| p.to_string_lossy().to_string())
 }
 
-/// PATH plus tool locations that may have been installed after this process
-/// started (Node.js, npm global bin) — lets the setup wizard work without an
-/// app restart.
+/// PATH plus tool locations a GUI launch doesn't see (Node.js, npm global
+/// bin, Homebrew, nvm) — shell rc files never run for a Finder/Explorer
+/// launched app, so detected CLIs would otherwise fail to spawn.
 fn augmented_path() -> String {
     let mut path = std::env::var("PATH").unwrap_or_default();
     #[cfg(target_os = "windows")]
