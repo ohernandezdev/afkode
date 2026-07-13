@@ -264,7 +264,7 @@ const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18];
 
 // ── i18n ──────────────────────────────────────────────────
 
-type Lang = "es" | "en";
+type Lang = "es" | "en" | "fr" | "it";
 
 const I18N: Record<Lang, Record<string, string>> = {
   es: {
@@ -498,6 +498,238 @@ const I18N: Record<Lang, Record<string, string>> = {
     updateFailed: "Update failed",
     awaySummary:
       "While you were away ({away} min): {turns} turns completed · {tools} tools · {files} files · it waited for you {waits} times ({waitMin} min)",
+  },
+  fr: {
+    tooltipNew: "Nouvel onglet",
+    tooltipHelp: "Aide et raccourcis",
+    tooltipSettings: "Paramètres",
+    tooltipGhost: "Mode fantôme (Alt+G) : les clics passent au jeu",
+    tooltipHide: "Masquer l'overlay (Alt+X)",
+    tooltipMaximize: "Agrandir / restaurer",
+    tooltipClose: "Réduire dans la zone de notification (quitter : menu de l'icône)",
+    close: "Fermer",
+    tooltipOpacity: "Opacité du fond",
+    hintAltXOverlay: "overlay",
+    hintAltXWindow: "afficher/masquer",
+    hintGhost: "fantôme",
+    hintPrompt: "prompt",
+    hintApprove: "approuver",
+    modeOverlay: "Overlay",
+    modeWindow: "Fenêtre",
+    tooltipModeBadge: "Cliquez pour basculer entre le mode overlay et fenêtre",
+    ghostBadge: "👻 MODE FANTÔME — Alt+G pour désactiver",
+    helpTitle: "Pourquoi utiliser AFKode ?",
+    help1:
+      "<b>Sans quitter le jeu.</b> L'overlay flotte au-dessus de votre jeu (mode fenêtré ou <i>borderless</i>). Appuyez sur <kbd>Alt</kbd>+<kbd>X</kbd> pour l'afficher ou le masquer instantanément, sans alt-tab.",
+    help2:
+      "<b>Claude travaille pendant que vous jouez.</b> Lancez une longue tâche à Claude Code, masquez l'overlay et continuez à jouer ; revenez avec <kbd>Alt</kbd>+<kbd>X</kbd> pour suivre la progression.",
+    help3:
+      "<b>Mode fantôme (<kbd>Alt</kbd>+<kbd>G</kbd>).</b> L'overlay reste visible comme un HUD semi-transparent et vos clics et touches passent au jeu.",
+    help4:
+      "<b>Onglets et votre dossier.</b> Le bouton <b>+</b> ouvre Claude Code, OpenCode, Codex ou PowerShell ; vous choisissez d'abord le dossier du projet via la boîte de dialogue native de Windows.",
+    help5:
+      "<b>Vrai terminal.</b> ConPTY + rendu GPU (WebGL) : couleurs complètes, applications interactives et performances de Windows Terminal avec un impact minimal sur vos FPS.",
+    help6:
+      "<b>À votre goût.</b> Thèmes, police et langue dans ⚙ ; faites glisser la barre supérieure pour le déplacer et réglez l'opacité avec le curseur de la barre inférieure.",
+    settingsTitle: "Paramètres",
+    theme: "Thème",
+    opacity: "Opacité",
+    font: "Police",
+    fontSize: "Taille",
+    language: "Langue",
+    ended: "(terminée)",
+    sessionEnded: "— session terminée — appuyez sur × pour fermer",
+    spawnError: "Échec du démarrage de la session",
+    pickFolder: "Choisissez le dossier du projet",
+    emptyTitle: "Où voulez-vous travailler ?",
+    noFolder: "Choisir un dossier… (par défaut : accueil)",
+    wizTitle: "Configurer Claude Code",
+    wizIntro:
+      "AFKode a besoin de deux éléments pour fonctionner. Cet assistant les installe pour vous — chaque étape ouvre un onglet où vous pouvez suivre la progression.",
+    wizStep1: "Node.js",
+    wizStep1Note: "Le moteur dont Claude Code a besoin. Installé via winget (installateur officiel de Windows).",
+    wizStep2: "Claude Code",
+    wizStep2Note: "L'agent de codage IA d'Anthropic. Installé via npm.",
+    wizStep3: "Tout est prêt",
+    wizStep3Note:
+      "Remarque : à la première utilisation, Claude Code vous demandera de vous connecter (votre navigateur s'ouvre, connectez-vous avec votre compte) — cette partie est gérée par Claude, pas par AFKode.",
+    wizInstall: "Installer",
+    wizLaunch: "Ouvrir Claude Code",
+    wizInstalling: "Installation",
+    wizInstallRunning: "Installation… (le journal ci-dessous se met à jour en direct)",
+    wizInstallOk: "✓ Installé avec succès",
+    wizInstallFailed: "✗ L'installation a échoué — vérifiez le journal ci-dessus",
+    wizInstallTimeout: "✗ Bloqué sans réponse — vous pouvez réessayer ou l'installer manuellement",
+    argsPlaceholder: "Options supplémentaires pour Claude Code (appliquées au lancement)…",
+    starting: "Démarrage",
+    notifications: "Notifications",
+    sound: "Son",
+    notifWaiting: "attend votre réponse",
+    notifDone: "semble avoir terminé",
+    notifExit: "session terminée",
+    installHint: "non installé — cliquez pour l'installer",
+    installing: "Installation",
+    hud: "Mini-HUD (pastille d'état)",
+    autoLaunch: "Lancer Claude automatiquement au démarrage",
+    hooksLabel: "Intégration avec Claude Code",
+    hooksNote:
+      "Lance Claude Code avec des hooks qui rapportent son état réel à AFKode : quel outil il exécute, quand il attend votre permission et quand un tour se termine. Le HUD, Alt+A et le résumé sont ainsi exacts au lieu d'estimés. Tout est local (127.0.0.1) ; s'applique aux nouvelles sessions.",
+    trayToggle: "Afficher / Masquer",
+    trayGhost: "Mode fantôme",
+    trayPalette: "Palette de prompts",
+    trayQuit: "Quitter AFKode",
+    hudOpen: "Ouvrir l'overlay (Alt+X)",
+    overlayModeLabel: "Mode overlay",
+    overlayModeNote:
+      "Activé : la fenêtre flotte toujours au-dessus de tout et n'apparaît pas dans la barre des tâches — pensé pour jouer. Désactivé : elle se comporte comme une fenêtre normale (barre des tâches, Alt+Tab) — mieux si vous ne jouez pas et voulez éviter qu'elle vous gêne avec d'autres applications en plein écran.",
+    matchModeLabel: "Ne pas déranger en partie",
+    matchModeNote:
+      "Quand un jeu en plein écran a le focus, AFKode reste silencieux : ni toasts ni bips. Les éléments en attente s'accumulent dans l'inbox et vous recevez une seule notification à la levée du silence. Comme les lobbies sont aussi en plein écran, Alt+N bascule le silence manuellement (🔕 sur le mini-HUD) ; à la fermeture du jeu, le mode automatique revient.",
+    searchPlaceholder: "Rechercher dans le terminal…  (Entrée suivant · Maj+Entrée précédent)",
+    tooltipGlobalSearch: "Rechercher des sessions (Ctrl+K)",
+    globalSearchPlaceholder: "Rechercher des sessions…",
+    globalSearchEmpty: "Aucun résultat",
+    linkOpening: "Ouverture du lien dans votre navigateur…",
+    linkOpenFailed: "Impossible d'ouvrir le navigateur — lien copié, collez-le où vous voulez",
+    pastedImageInstead: "Votre presse-papiers ne contenait pas de texte, une image a donc été collée à la place",
+    filePreviewError: "Impossible d'ouvrir le fichier",
+    filePreviewNotFoundBare:
+      "Fichier introuvable dans le dossier de la session. Claude l'a probablement mentionné sans indiquer son chemin complet.",
+    filePreviewTriedIn: "recherché dans",
+    inboxTitle: "Vos agents ont besoin de vous",
+    inboxApprove: "Approuver",
+    inboxOpen: "Aller",
+    ttsLabel: "Annonces vocales (TTS)",
+    ttsNote:
+      "Style copilote : au lieu d'un bip, une voix annonce \"Claude Code attend votre réponse\" par-dessus l'audio du jeu. Windows ne la supprime pas en plein écran.",
+    queuedSummary: "{n} élément(s) en attente de vos agents — Alt+X pour vérifier",
+    hudWorking: "au travail",
+    hudWaiting: "vous attend",
+    hudDone: "terminé",
+    updateReady:
+      "AFKode {v} installé — appliqué au redémarrage de l'app (menu de la zone de notification → Quitter)",
+    updateAvailable: "AFKode {v} est disponible",
+    updateInstallBtn: "Mettre à jour et redémarrer",
+    updateInstalling: "Téléchargement de la mise à jour… l'app redémarrera toute seule",
+    updateFailed: "La mise à jour a échoué",
+    awaySummary:
+      "Pendant votre absence ({away} min) : {turns} tours terminés · {tools} outils · {files} fichiers · il vous a attendu {waits} fois ({waitMin} min)",
+  },
+  it: {
+    tooltipNew: "Nuova scheda",
+    tooltipHelp: "Aiuto e scorciatoie",
+    tooltipSettings: "Impostazioni",
+    tooltipGhost: "Modalità fantasma (Alt+G): i clic passano al gioco",
+    tooltipHide: "Nascondi l'overlay (Alt+X)",
+    tooltipMaximize: "Ingrandisci / ripristina",
+    tooltipClose: "Nascondi nella barra di sistema (esci: menu dell'icona)",
+    close: "Chiudi",
+    tooltipOpacity: "Opacità dello sfondo",
+    hintAltXOverlay: "overlay",
+    hintAltXWindow: "mostra/nascondi",
+    hintGhost: "fantasma",
+    hintPrompt: "prompt",
+    hintApprove: "approva",
+    modeOverlay: "Overlay",
+    modeWindow: "Finestra",
+    tooltipModeBadge: "Clicca per passare dalla modalità overlay a finestra",
+    ghostBadge: "👻 MODALITÀ FANTASMA — Alt+G per disattivare",
+    helpTitle: "Perché usare AFKode?",
+    help1:
+      "<b>Senza uscire dal gioco.</b> L'overlay fluttua sopra il tuo gioco (in modalità finestra o <i>borderless</i>). Premi <kbd>Alt</kbd>+<kbd>X</kbd> per mostrarlo o nasconderlo all'istante, senza alt-tab.",
+    help2:
+      "<b>Claude lavora mentre giochi.</b> Avvia un compito lungo con Claude Code, nascondi l'overlay e continua a giocare; torna con <kbd>Alt</kbd>+<kbd>X</kbd> per controllare i progressi.",
+    help3:
+      "<b>Modalità fantasma (<kbd>Alt</kbd>+<kbd>G</kbd>).</b> L'overlay resta visibile come un HUD semitrasparente e i tuoi clic e tasti passano al gioco.",
+    help4:
+      "<b>Schede e la tua cartella.</b> Il pulsante <b>+</b> apre Claude Code, OpenCode, Codex o PowerShell; prima scegli la cartella del progetto con la finestra di dialogo nativa di Windows.",
+    help5:
+      "<b>Terminale vero.</b> ConPTY + rendering GPU (WebGL): colori completi, app interattive e prestazioni da Windows Terminal con impatto minimo sui tuoi FPS.",
+    help6:
+      "<b>Su misura per te.</b> Temi, font e lingua in ⚙; trascina la barra superiore per spostarlo e regola l'opacità con il cursore della barra inferiore.",
+    settingsTitle: "Impostazioni",
+    theme: "Tema",
+    opacity: "Opacità",
+    font: "Font",
+    fontSize: "Dimensione",
+    language: "Lingua",
+    ended: "(terminata)",
+    sessionEnded: "— sessione terminata — premi × per chiudere",
+    spawnError: "Avvio della sessione non riuscito",
+    pickFolder: "Scegli la cartella del progetto",
+    emptyTitle: "Dove vuoi lavorare?",
+    noFolder: "Scegli cartella… (predefinita: home)",
+    wizTitle: "Configura Claude Code",
+    wizIntro:
+      "AFKode ha bisogno di due componenti per funzionare. Questa procedura li installa per te — ogni passaggio apre una scheda dove puoi seguire i progressi.",
+    wizStep1: "Node.js",
+    wizStep1Note: "Il motore di cui Claude Code ha bisogno. Installato con winget (installer ufficiale di Windows).",
+    wizStep2: "Claude Code",
+    wizStep2Note: "L'agente di coding IA di Anthropic. Installato con npm.",
+    wizStep3: "Tutto pronto",
+    wizStep3Note:
+      "Nota: al primo avvio Claude Code ti chiederà di accedere (si apre il browser, entra con il tuo account) — quella parte la gestisce Claude, non AFKode.",
+    wizInstall: "Installa",
+    wizLaunch: "Apri Claude Code",
+    wizInstalling: "Installazione",
+    wizInstallRunning: "Installazione… (il log qui sotto si aggiorna in tempo reale)",
+    wizInstallOk: "✓ Installato correttamente",
+    wizInstallFailed: "✗ Installazione non riuscita — controlla il log qui sopra",
+    wizInstallTimeout: "✗ Bloccato senza risposta — puoi riprovare o installarlo manualmente",
+    argsPlaceholder: "Flag extra per Claude Code (applicati all'avvio)…",
+    starting: "Avvio",
+    notifications: "Notifiche",
+    sound: "Suono",
+    notifWaiting: "sta aspettando la tua risposta",
+    notifDone: "sembra aver finito",
+    notifExit: "sessione terminata",
+    installHint: "non installato — clicca per installarlo",
+    installing: "Installazione",
+    hud: "Mini-HUD (indicatore di stato)",
+    autoLaunch: "Avvia Claude automaticamente all'apertura",
+    hooksLabel: "Integrazione con Claude Code",
+    hooksNote:
+      "Avvia Claude Code con hook che riportano il suo stato reale ad AFKode: quale strumento esegue, quando aspetta il tuo permesso e quando finisce un turno. Così l'HUD, Alt+A e il riepilogo sono esatti invece che stimati. Tutto è locale (127.0.0.1); si applica alle nuove sessioni.",
+    trayToggle: "Mostra / Nascondi",
+    trayGhost: "Modalità fantasma",
+    trayPalette: "Palette dei prompt",
+    trayQuit: "Esci da AFKode",
+    hudOpen: "Apri l'overlay (Alt+X)",
+    overlayModeLabel: "Modalità overlay",
+    overlayModeNote:
+      "Attiva: la finestra fluttua sempre sopra tutto e non appare nella barra delle applicazioni — pensata per giocare. Disattiva: si comporta come una finestra normale (barra delle applicazioni, Alt+Tab) — meglio se non stai giocando e vuoi evitare che copra o venga coperta da altre app a schermo intero.",
+    matchModeLabel: "Non disturbare in partita",
+    matchModeNote:
+      "Quando un gioco a schermo intero ha il focus, AFKode resta in silenzio: niente toast né bip. Gli elementi in sospeso si accumulano nell'inbox e ricevi un solo avviso quando il silenzio termina. Poiché anche le lobby sono a schermo intero, Alt+N attiva il silenzio manualmente (🔕 sul mini-HUD); alla chiusura del gioco torna la modalità automatica.",
+    searchPlaceholder: "Cerca nel terminale…  (Invio successivo · Maiusc+Invio precedente)",
+    tooltipGlobalSearch: "Cerca sessioni (Ctrl+K)",
+    globalSearchPlaceholder: "Cerca sessioni…",
+    globalSearchEmpty: "Nessun risultato",
+    linkOpening: "Apertura del link nel browser…",
+    linkOpenFailed: "Impossibile aprire il browser — link copiato, incollalo dove vuoi",
+    pastedImageInstead: "Gli appunti non contenevano testo, quindi è stata incollata un'immagine",
+    filePreviewError: "Impossibile aprire il file",
+    filePreviewNotFoundBare:
+      "File non trovato nella cartella della sessione. Probabilmente Claude l'ha citato senza indicarne il percorso completo.",
+    filePreviewTriedIn: "cercato in",
+    inboxTitle: "I tuoi agenti hanno bisogno di te",
+    inboxApprove: "Approva",
+    inboxOpen: "Vai",
+    ttsLabel: "Annunci vocali (TTS)",
+    ttsNote:
+      "Stile copilota: invece di un bip, una voce annuncia \"Claude Code sta aspettando la tua risposta\" sopra l'audio del gioco. Windows non la sopprime a schermo intero.",
+    queuedSummary: "{n} elemento/i in sospeso dai tuoi agenti — Alt+X per controllare",
+    hudWorking: "al lavoro",
+    hudWaiting: "ti aspetta",
+    hudDone: "fatto",
+    updateReady:
+      "AFKode {v} installato — si applica al riavvio dell'app (menu della barra di sistema → Esci)",
+    updateAvailable: "AFKode {v} è disponibile",
+    updateInstallBtn: "Aggiorna e riavvia",
+    updateInstalling: "Download dell'aggiornamento… l'app si riavvierà da sola",
+    updateFailed: "Aggiornamento non riuscito",
+    awaySummary:
+      "Mentre non c'eri ({away} min): {turns} turni completati · {tools} strumenti · {files} file · ti ha aspettato {waits} volte ({waitMin} min)",
   },
 };
 
@@ -1304,7 +1536,9 @@ function speak(text: string) {
   }
   try {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = settings.lang === "es" ? "es-ES" : "en-US";
+    u.lang =
+      ({ es: "es-ES", en: "en-US", fr: "fr-FR", it: "it-IT" } as const)[settings.lang] ??
+      "en-US";
     u.rate = 1.05;
     u.volume = 1;
     speechSynthesis.cancel();
@@ -2080,6 +2314,9 @@ function applyI18n() {
     el.setAttribute("aria-label", label);
   });
   updateStatusHint();
+  // The mode badge is otherwise only re-rendered when the mode toggles, so a
+  // language switch would leave it in the previous language.
+  $("#mode-badge").textContent = settings.overlayMode ? t("modeOverlay") : t("modeWindow");
   ghostBadge.textContent = t("ghostBadge");
   $("#help-title").textContent = t("helpTitle");
   $("#help-list").innerHTML = [1, 2, 3, 4, 5, 6]
@@ -2219,7 +2456,12 @@ chkTts.checked = settings.tts;
 chkTts.addEventListener("change", () => {
   settings.tts = chkTts.checked;
   saveSettings();
-  if (settings.tts) speak(settings.lang === "es" ? "Voz activada" : "Voice enabled");
+  if (settings.tts)
+    speak(
+      ({ es: "Voz activada", en: "Voice enabled", fr: "Voix activée", it: "Voce attivata" } as const)[
+        settings.lang
+      ] ?? "Voice enabled",
+    );
 });
 
 // ── CLI detection & one-click install ─────────────────────

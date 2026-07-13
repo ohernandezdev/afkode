@@ -49,18 +49,22 @@ let sugs: Suggestion[] = [];
 let sel = -1;
 let debounceTimer = 0;
 
-function isEs(): boolean {
+function uiLang(): string {
   try {
-    return JSON.parse(localStorage.getItem("settings") ?? "{}").lang === "es";
+    return JSON.parse(localStorage.getItem("settings") ?? "{}").lang ?? "en";
   } catch {
-    return false;
+    return "en";
   }
 }
 
 function placeholder(): string {
-  return isEs()
-    ? "Escribe un prompt…  ( / comandos · @ archivos · Tab completa )"
-    : "Type a prompt…  ( / commands · @ files · Tab completes )";
+  const map: Record<string, string> = {
+    es: "Escribe un prompt…  ( / comandos · @ archivos · Tab completa )",
+    en: "Type a prompt…  ( / commands · @ files · Tab completes )",
+    fr: "Écrivez un prompt…  ( / commandes · @ fichiers · Tab complète )",
+    it: "Scrivi un prompt…  ( / comandi · @ file · Tab completa )",
+  };
+  return map[uiLang()] ?? map.en;
 }
 
 function resize() {

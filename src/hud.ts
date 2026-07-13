@@ -65,7 +65,13 @@ const altX = navigator.platform.toUpperCase().includes("MAC") ? "⌥X" : "Alt+X"
 function localizeTooltip() {
   try {
     const lang = JSON.parse(localStorage.getItem("settings") ?? "{}").lang;
-    openBtn.title = lang === "es" ? `Abrir overlay (${altX})` : `Open overlay (${altX})`;
+    const open: Record<string, string> = {
+      es: `Abrir overlay (${altX})`,
+      en: `Open overlay (${altX})`,
+      fr: `Ouvrir l'overlay (${altX})`,
+      it: `Apri l'overlay (${altX})`,
+    };
+    openBtn.title = open[lang] ?? open.en;
     replyBtn.title = altX.replace("X", "P");
   } catch {
     /* keep default */
