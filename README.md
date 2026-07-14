@@ -38,7 +38,7 @@ An in-game overlay to supervise AI coding agents — Claude Code, OpenCode, Code
 | OS | How |
 |---|---|
 | **Windows** | `winget install OmarHernandez.AFKode` — or the NSIS installer from [Releases](https://github.com/ohernandezdev/afkode/releases) |
-| **macOS** | Download the `.dmg` from [Releases](https://github.com/ohernandezdev/afkode/releases), drag to Applications. Unsigned for now: right-click → Open on first launch (or `xattr -dr com.apple.quarantine /Applications/AFKode.app`) |
+| **macOS** | Download the `.dmg` from [Releases](https://github.com/ohernandezdev/afkode/releases), drag to Applications, open it. Signed and notarized — no right-click workaround needed. |
 | **Linux** | `.AppImage` (self-updating) or `.deb`/`.rpm` from [Releases](https://github.com/ohernandezdev/afkode/releases) |
 
 AFKode checks for updates on startup and installs them after you confirm (signed updater artifacts). Agent CLIs (Claude Code, OpenCode, Codex) are detected on your system; install the ones you want with their official instructions and their launcher buttons appear.
