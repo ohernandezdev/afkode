@@ -1490,6 +1490,16 @@ async function newSession(
       // predated the PTY registration and was a no-op — kill it now.
       if (!sessions.has(id)) {
         invoke("kill_pty", { id }).catch(() => {});
+      } else {
+        // safeFit's corrective shrink (FitAddon overcounts rows by ~1: the
+        // pane's border-box padding is invisible to it) fires resize_pty on
+        // a rAF that usually lands while this spawn is still in flight —
+        // "session not found", silently dropped. The PTY then runs one row
+        // taller than the visible grid, so a TUI's bottom line (the last
+        // line of a long prompt in Claude Code) is drawn off-screen until
+        // a window resize happens to heal it. Re-sync now that the PTY
+        // exists.
+        invoke("resize_pty", { id, cols: term.cols, rows: term.rows }).catch(() => {});
       }
     } catch (e) {
       dismissLoader(session);
