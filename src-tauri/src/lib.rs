@@ -1266,6 +1266,15 @@ async fn read_text_file(path: String) -> Result<String, String> {
     })
 }
 
+/// Write edited text back to disk from the preview panel. Only ever called
+/// on a path the preview already successfully read as text, so no separate
+/// binary/size guard is needed here.
+#[tauri::command]
+async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    let path = expand_tilde(&path);
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
 fn run_git(cwd: &str, args: &[&str]) -> Option<String> {
     let mut c = std::process::Command::new("git");
     c.args(args);
@@ -1927,6 +1936,7 @@ pub fn run() {
             save_temp_image,
             clipboard_image_to_temp,
             read_text_file,
+            write_text_file,
             read_image_data_url,
             git_status,
             install_update,

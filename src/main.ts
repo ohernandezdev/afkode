@@ -365,6 +365,12 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewNotFoundBare:
       "No encontré este archivo en la carpeta de la sesión. Claude probablemente lo mencionó sin indicar su ruta completa.",
     filePreviewTriedIn: "se buscó en",
+    copy: "Copiar",
+    edit: "Editar",
+    filePreviewSave: "Guardar",
+    filePreviewCopied: "Copiado al portapapeles",
+    filePreviewSaved: "Guardado",
+    filePreviewSaveError: "No se pudo guardar el archivo",
     inboxTitle: "Pendientes de tus agentes",
     inboxApprove: "Aprobar",
     inboxOpen: "Ir",
@@ -482,6 +488,12 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewNotFoundBare:
       "Couldn't find this file in the session's folder. Claude likely mentioned it without its full path.",
     filePreviewTriedIn: "looked in",
+    copy: "Copy",
+    edit: "Edit",
+    filePreviewSave: "Save",
+    filePreviewCopied: "Copied to clipboard",
+    filePreviewSaved: "Saved",
+    filePreviewSaveError: "Couldn't save the file",
     inboxTitle: "Your agents need you",
     inboxApprove: "Approve",
     inboxOpen: "Go",
@@ -599,6 +611,12 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewNotFoundBare:
       "Fichier introuvable dans le dossier de la session. Claude l'a probablement mentionné sans indiquer son chemin complet.",
     filePreviewTriedIn: "recherché dans",
+    copy: "Copier",
+    edit: "Modifier",
+    filePreviewSave: "Enregistrer",
+    filePreviewCopied: "Copié dans le presse-papiers",
+    filePreviewSaved: "Enregistré",
+    filePreviewSaveError: "Impossible d'enregistrer le fichier",
     inboxTitle: "Vos agents ont besoin de vous",
     inboxApprove: "Approuver",
     inboxOpen: "Aller",
@@ -716,6 +734,12 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewNotFoundBare:
       "File non trovato nella cartella della sessione. Probabilmente Claude l'ha citato senza indicarne il percorso completo.",
     filePreviewTriedIn: "cercato in",
+    copy: "Copia",
+    edit: "Modifica",
+    filePreviewSave: "Salva",
+    filePreviewCopied: "Copiato negli appunti",
+    filePreviewSaved: "Salvato",
+    filePreviewSaveError: "Impossibile salvare il file",
     inboxTitle: "I tuoi agenti hanno bisogno di te",
     inboxApprove: "Approva",
     inboxOpen: "Vai",
@@ -2898,8 +2922,17 @@ document.addEventListener("keydown", (e) => {
 // paths (read in-app and show a preview instead of doing nothing).
 
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
+const FILE_EXTS =
+  "mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|" +
+  IMAGE_EXTS.join("|");
+// Windows dirs like "Omar Hernandez" or "Program Files" contain spaces, so an
+// absolute path (drive letter / ~ / leading slash) allows spaces within its
+// segments — bounded with a lazy quantifier so it stops at the first plausible
+// extension instead of swallowing the rest of the line. Bare/relative-looking
+// fragments (no unambiguous absolute prefix) stay space-free to avoid turning
+// ordinary prose ("see the readme in the config.json area") into a fake link.
 const FILE_LINK_RE = new RegExp(
-  String.raw`(?<!\/\/)(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/]|\/)?[\w.-]+(?:[\\/][\w.-]+)*\.(?:mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|${IMAGE_EXTS.join("|")})\b`,
+  String.raw`(?<!\/\/)(?:(?:[A-Za-z]:[\\/]|~[\\/]|\/)[^\r\n"'|]+?\.(?:${FILE_EXTS})\b|\.{1,2}[\\/][\w.-]+(?:[\\/][\w.-]+)*\.(?:${FILE_EXTS})\b|[\w.-]+(?:[\\/][\w.-]+)*\.(?:${FILE_EXTS})\b)`,
   "i",
 );
 
@@ -2966,6 +2999,57 @@ $("#file-preview-close").addEventListener("click", () =>
   filePreviewModal.classList.remove("open"),
 );
 
+const filePreviewEditBtn = $("#file-preview-edit");
+
+$("#file-preview-copy").addEventListener("click", async () => {
+  const text = previewEditing
+    ? (filePreviewBody.querySelector("textarea") as HTMLTextAreaElement | null)?.value
+    : previewText;
+  if (text == null) return;
+  await navigator.clipboard.writeText(text);
+  showLinkToast(t("filePreviewCopied"));
+});
+
+filePreviewEditBtn.addEventListener("click", async () => {
+  if (previewText == null) return;
+  if (!previewEditing) {
+    const textarea = document.createElement("textarea");
+    textarea.className = "file-preview-edit-area";
+    textarea.value = previewText;
+    textarea.spellcheck = false;
+    filePreviewBody.className = "file-preview-body plain";
+    filePreviewBody.replaceChildren(textarea);
+    textarea.focus();
+    setPreviewEditing(true);
+    return;
+  }
+  const textarea = filePreviewBody.querySelector("textarea") as HTMLTextAreaElement | null;
+  const edited = textarea?.value ?? previewText;
+  if (!previewPath) return;
+  try {
+    await invoke("write_text_file", { path: previewPath, contents: edited });
+    previewText = edited;
+    setPreviewEditing(false);
+    showLinkToast(t("filePreviewSaved"));
+    if (MARKDOWN_EXT_RE.test(previewPath)) {
+      filePreviewBody.className = "file-preview-body md";
+      filePreviewBody.innerHTML = DOMPurify.sanitize(await marked.parse(edited));
+    } else {
+      const lang = langForPath(previewPath);
+      if (lang && hljs.getLanguage(lang)) {
+        filePreviewBody.className = "file-preview-body code";
+        const html = hljs.highlight(edited, { language: lang }).value;
+        filePreviewBody.innerHTML = `<pre><code class="hljs">${DOMPurify.sanitize(html)}</code></pre>`;
+      } else {
+        filePreviewBody.className = "file-preview-body plain";
+        filePreviewBody.textContent = edited;
+      }
+    }
+  } catch (err) {
+    showLinkToast(`${t("filePreviewSaveError")}: ${err}`);
+  }
+});
+
 // The click that opens the panel (a link inside the terminal) is still
 // bubbling up to document when it opens, so a plain outside-click listener
 // would immediately close what it just opened. Skip exactly that one click.
@@ -3002,6 +3086,19 @@ function langForPath(path: string): string | null {
   return ext ? LANG_BY_EXT[ext] ?? null : null;
 }
 
+// Preview state kept alongside the panel so the copy/edit buttons (which
+// fire after the async render below has finished) know what they're
+// operating on without re-fetching or re-parsing the DOM.
+let previewPath: string | null = null;
+let previewText: string | null = null; // raw file contents; null for images/errors
+let previewEditing = false;
+
+function setPreviewEditing(editing: boolean) {
+  previewEditing = editing;
+  filePreviewEditBtn.title = t(editing ? "filePreviewSave" : "edit");
+  filePreviewEditBtn.classList.toggle("active", editing);
+}
+
 async function openFilePreview(raw: string, cwd: string | null) {
   // POSIX absolute paths start with "/" — only meaningful off Windows,
   // where a leading "/" in agent output is instead likely a relative
@@ -3017,6 +3114,10 @@ async function openFilePreview(raw: string, cwd: string | null) {
     : win
       ? `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\")
       : `${cwd ?? "."}/${raw}`;
+  previewPath = path;
+  previewText = null;
+  setPreviewEditing(false);
+  filePreviewEditBtn.classList.remove("hidden");
   filePreviewTitle.textContent = raw;
   filePreviewBody.className = "file-preview-body plain";
   filePreviewBody.textContent = "…";
@@ -3025,6 +3126,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
   setTimeout(() => (ignoreNextOutsideClick = false), 0);
   const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1].toLowerCase();
   if (ext && IMAGE_EXTS.includes(ext)) {
+    filePreviewEditBtn.classList.add("hidden");
     try {
       const dataUrl = await invoke<string>("read_image_data_url", { path });
       filePreviewBody.className = "file-preview-body img";
@@ -3040,6 +3142,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
   }
   try {
     const text = await invoke<string>("read_text_file", { path });
+    previewText = text;
     if (MARKDOWN_EXT_RE.test(path)) {
       filePreviewBody.className = "file-preview-body md";
       filePreviewBody.innerHTML = DOMPurify.sanitize(await marked.parse(text));
@@ -3055,6 +3158,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
       }
     }
   } catch (err) {
+    filePreviewEditBtn.classList.add("hidden");
     filePreviewBody.className = "file-preview-body plain";
     // A bare name with no path separators (e.g. from a bullet list) was
     // guessed relative to the session folder — say so instead of just
