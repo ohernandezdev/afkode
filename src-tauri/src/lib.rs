@@ -1237,6 +1237,28 @@ async fn read_image_data_url(path: String) -> Result<String, String> {
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
+/// Read an arbitrary file as base64 for the 3D model preview panel. Model
+/// formats (glb/stl binary data, gltf sibling .bin/textures) aren't valid
+/// UTF-8 so `read_text_file` can't carry them; this mirrors
+/// `read_image_data_url`'s "just hand back base64" approach rather than
+/// widening the asset-protocol filesystem scope for arbitrary clicked-on
+/// paths.
+#[tauri::command]
+async fn read_binary_file_base64(path: String) -> Result<String, String> {
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    let path = expand_tilde(&path);
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("not a file".into());
+    }
+    if meta.len() > MAX_BYTES {
+        return Err("file too large to preview (>64 MB)".into());
+    }
+    use base64::Engine;
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
 /// Read a text file for the in-app preview panel. Capped so a click on a huge
 /// log doesn't stall the UI; binary files are rejected rather than dumped as
 /// garbled text.
@@ -1938,6 +1960,7 @@ pub fn run() {
             read_text_file,
             write_text_file,
             read_image_data_url,
+            read_binary_file_base64,
             git_status,
             install_update,
             platform_info,

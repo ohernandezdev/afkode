@@ -24,6 +24,8 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { CommandBlocks } from "./blocks";
 import { WebKitDeadKeyAddon } from "./xtermDeadKeyAddon";
+import { MODEL_EXTS } from "./modelExts";
+import type { ModelPreview } from "./modelPreview";
 
 // ── Themes ────────────────────────────────────────────────
 
@@ -371,6 +373,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copiado al portapapeles",
     filePreviewSaved: "Guardado",
     filePreviewSaveError: "No se pudo guardar el archivo",
+    closeTabConfirm: "Hay un proceso en ejecución en esta pestaña. ¿Cerrarla de todas formas?",
+    closeTabConfirmTitle: "Cerrar pestaña",
+    closeTabConfirmOk: "Cerrar de todas formas",
+    cancel: "Cancelar",
     inboxTitle: "Pendientes de tus agentes",
     inboxApprove: "Aprobar",
     inboxOpen: "Ir",
@@ -494,6 +500,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copied to clipboard",
     filePreviewSaved: "Saved",
     filePreviewSaveError: "Couldn't save the file",
+    closeTabConfirm: "This tab has a running process. Close it anyway?",
+    closeTabConfirmTitle: "Close tab",
+    closeTabConfirmOk: "Close anyway",
+    cancel: "Cancel",
     inboxTitle: "Your agents need you",
     inboxApprove: "Approve",
     inboxOpen: "Go",
@@ -617,6 +627,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copié dans le presse-papiers",
     filePreviewSaved: "Enregistré",
     filePreviewSaveError: "Impossible d'enregistrer le fichier",
+    closeTabConfirm: "Un processus est en cours d'exécution dans cet onglet. Le fermer quand même ?",
+    closeTabConfirmTitle: "Fermer l'onglet",
+    closeTabConfirmOk: "Fermer quand même",
+    cancel: "Annuler",
     inboxTitle: "Vos agents ont besoin de vous",
     inboxApprove: "Approuver",
     inboxOpen: "Aller",
@@ -740,6 +754,10 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copiato negli appunti",
     filePreviewSaved: "Salvato",
     filePreviewSaveError: "Impossibile salvare il file",
+    closeTabConfirm: "In questa scheda è in esecuzione un processo. Chiuderla comunque?",
+    closeTabConfirmTitle: "Chiudi scheda",
+    closeTabConfirmOk: "Chiudi comunque",
+    cancel: "Annulla",
     inboxTitle: "I tuoi agenti hanno bisogno di te",
     inboxApprove: "Approva",
     inboxOpen: "Vai",
@@ -1092,9 +1110,24 @@ function setActive(id: string) {
   }
 }
 
-function closeSession(id: string) {
+// A live process (a running build, an unfinished agent turn) dies the
+// moment the pty is killed with no chance to save state — closing that tab
+// by a stray click is easy to do and hard to undo, so it's the one case
+// that gets a confirmation. `alive` alone stays true for an idle shell's
+// entire lifetime (it only flips at process exit), so the actual gate is
+// sessionState() !== "done" — recent output or an unfinished agent turn —
+// or the underlying process must already be alive to close it at all.
+async function closeSession(id: string) {
   const s = sessions.get(id);
   if (!s) return;
+  if (s.alive && sessionState(s) !== "done") {
+    const proceed = await confirmDialog(
+      t("closeTabConfirm"),
+      t("closeTabConfirmTitle"),
+      t("closeTabConfirmOk"),
+    );
+    if (!proceed || !sessions.has(id)) return;
+  }
   if (askSession?.id === id) closeAskStrip();
   sessions.delete(id);
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
@@ -2841,6 +2874,51 @@ function wireModal(modalSel: string, openSel: string, closeSel: string) {
 const helpModal = wireModal("#help-modal", "#btn-help", "#btn-help-close");
 wireModal("#settings-modal", "#btn-settings", "#btn-settings-close");
 
+// A promise-based confirm dialog styled like the app's own modals, instead
+// of the OS-native message box `@tauri-apps/plugin-dialog`'s ask() renders
+// (light background, system buttons) — jarring against the dark UI here.
+const confirmModal = $("#confirm-modal");
+const confirmTitleEl = $("#confirm-title");
+const confirmMessageEl = $("#confirm-message");
+const confirmCancelBtn = $("#confirm-cancel");
+const confirmOkBtn = $("#confirm-ok");
+let confirmResolve: ((v: boolean) => void) | null = null;
+
+function resolveConfirm(v: boolean) {
+  if (!confirmResolve) return;
+  confirmModal.classList.add("hidden");
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  resolve(v);
+}
+confirmCancelBtn.addEventListener("click", () => resolveConfirm(false));
+confirmOkBtn.addEventListener("click", () => resolveConfirm(true));
+confirmModal.addEventListener("click", (e) => {
+  if (e.target === confirmModal) resolveConfirm(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (!confirmResolve) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    resolveConfirm(false);
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    resolveConfirm(true);
+  }
+});
+
+function confirmDialog(message: string, title: string, okLabel: string): Promise<boolean> {
+  confirmTitleEl.textContent = title;
+  confirmMessageEl.textContent = message;
+  confirmCancelBtn.textContent = t("cancel");
+  confirmOkBtn.textContent = okLabel;
+  confirmModal.classList.remove("hidden");
+  confirmCancelBtn.focus();
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+  });
+}
+
 // ── Global search (Ctrl+K): jump between open sessions ─────
 
 function escapeHtml(s: string): string {
@@ -2939,7 +3017,9 @@ document.addEventListener("keydown", (e) => {
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"];
 const FILE_EXTS =
   "mdx?|txt|log|json|ya?ml|csv|toml|env|cfg|ini|sh|ps1|diff|patch|tsx?|jsx?|mjs|cjs|py|rs|go|rb|php|c|cc|cpp|h|hpp|java|kt|swift|cs|sql|xml|html?|css|scss|less|vue|svelte|graphql|lua|dockerfile|" +
-  IMAGE_EXTS.join("|");
+  IMAGE_EXTS.join("|") +
+  "|" +
+  MODEL_EXTS.join("|");
 // Windows dirs like "Omar Hernandez" or "Program Files" contain spaces, so an
 // absolute path (drive letter / ~ / leading slash) allows spaces within its
 // segments — bounded with a lazy quantifier so it stops at the first plausible
@@ -3010,9 +3090,20 @@ function showLinkToast(text: string) {
 const filePreviewModal = $("#file-preview-modal");
 const filePreviewTitle = $("#file-preview-title");
 const filePreviewBody = $("#file-preview-body");
-$("#file-preview-close").addEventListener("click", () =>
-  filePreviewModal.classList.remove("open"),
-);
+
+// Tracks the live Three.js scene/renderer for the currently open model
+// preview (if any) so it can be torn down before the next preview replaces
+// the canvas — otherwise each open/close cycle leaks a WebGL context.
+let currentModelPreview: ModelPreview | null = null;
+function disposeModelPreview() {
+  currentModelPreview?.dispose();
+  currentModelPreview = null;
+}
+
+$("#file-preview-close").addEventListener("click", () => {
+  filePreviewModal.classList.remove("open");
+  disposeModelPreview();
+});
 
 const filePreviewEditBtn = $("#file-preview-edit");
 
@@ -3076,6 +3167,7 @@ document.addEventListener("click", (e) => {
     !filePreviewModal.contains(e.target as Node)
   ) {
     filePreviewModal.classList.remove("open");
+    disposeModelPreview();
   }
 });
 
@@ -3129,6 +3221,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
     : win
       ? `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\")
       : `${cwd ?? "."}/${raw}`;
+  disposeModelPreview();
   previewPath = path;
   previewText = null;
   setPreviewEditing(false);
@@ -3151,6 +3244,21 @@ async function openFilePreview(raw: string, cwd: string | null) {
       img.alt = raw;
       filePreviewBody.appendChild(img);
     } catch (err) {
+      filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
+    }
+    return;
+  }
+  if (ext && MODEL_EXTS.includes(ext)) {
+    filePreviewEditBtn.classList.add("hidden");
+    filePreviewBody.className = "file-preview-body model";
+    filePreviewBody.replaceChildren();
+    const canvas = document.createElement("canvas");
+    filePreviewBody.appendChild(canvas);
+    try {
+      const { renderModelPreview } = await import("./modelPreview");
+      currentModelPreview = await renderModelPreview(canvas, path, ext);
+    } catch (err) {
+      filePreviewBody.className = "file-preview-body plain";
       filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
     }
     return;
@@ -3184,6 +3292,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
       : `${t("filePreviewError")}: ${path}\n${err}`;
   }
 }
+
 
 $("#away-close").addEventListener("click", () =>
   $("#away-banner").classList.add("hidden"),
