@@ -962,6 +962,19 @@ const $ = <T extends HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
 
 const tabsEl = $("#tabs");
+// The tab strip hides its scrollbar (Warp-style) and a plain vertical mouse
+// wheel doesn't scroll a horizontally-overflowing flex row by default, so
+// past 3-4 tabs there was no way to reach the new ones — redirect vertical
+// wheel delta into horizontal scroll here.
+tabsEl.addEventListener(
+  "wheel",
+  (e) => {
+    if (e.deltaY === 0) return;
+    tabsEl.scrollLeft += e.deltaY;
+    e.preventDefault();
+  },
+  { passive: false },
+);
 const terminalsEl = $("#terminals");
 const statusEl = $("#status-session");
 const overlayEl = $("#overlay");
@@ -1057,6 +1070,7 @@ function setActive(id: string) {
     s.pane.classList.toggle("active", s.id === id);
     s.tab.classList.toggle("active", s.id === id);
   }
+  sessions.get(id)?.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
   const active = sessions.get(id);
   if (active) {
     active.doneSeen = true;
@@ -1210,6 +1224,7 @@ async function newSession(
     if (s) openTabColorMenu(s, e.clientX, e.clientY);
   });
   tabsEl.appendChild(tab);
+  tab.scrollIntoView({ block: "nearest", inline: "nearest" });
 
   const themeDef = THEMES[settings.theme];
   const term = new Terminal({
