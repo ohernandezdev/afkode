@@ -79,6 +79,10 @@ body {
   background: rgba(var(--bar-rgb), var(--panel-alpha));
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Its own width comes from the parent (.overlay), never from its
+     children, so querying it here can't create a resize feedback loop. */
+  container-type: inline-size;
+  container-name: titlebar;
 }
 
 .brand {
@@ -133,6 +137,11 @@ body {
   white-space: nowrap;
   width: 220px;
   overflow: hidden;
+  /* overflow:hidden gives this flex item an automatic min-width of 0, so
+     without a floor it shrinks pixel-by-pixel into its children instead of
+     hiding them cleanly — the container queries below strip content in
+     stages before it ever gets this tight. */
+  min-width: 32px;
 }
 .header-search:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -141,6 +150,23 @@ body {
 .header-search span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Titlebar controls (window buttons) must stay fully usable — degrade the
+   search box first as the window narrows, not the close/minimize buttons. */
+@container titlebar (max-width: 720px) {
+  .header-search kbd {
+    display: none;
+  }
+}
+@container titlebar (max-width: 600px) {
+  .header-search span {
+    display: none;
+  }
+  .header-search {
+    width: auto;
+    padding: 0 8px;
+  }
 }
 .header-search kbd {
   margin-left: auto;
@@ -378,6 +404,10 @@ body {
   display: flex;
   gap: 4px;
   margin-left: 14px;
+  /* Window controls (help/settings/ghost/hide/maximize/close) must never
+     lose the flex-shrink tug-of-war — losing access to close/minimize in a
+     narrow window is worse than a squished search box or tab strip. */
+  flex-shrink: 0;
 }
 .controls .btn {
   color: var(--text);

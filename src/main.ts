@@ -1208,9 +1208,12 @@ async function closeSession(id: string) {
 // line-heights round per-row instead of per-terminal; over many rows that
 // drift can push the last line past the pane's bottom edge. FitAddon can't
 // see that at measurement time, so shrink by a row until it actually fits.
+// The same per-cell rounding can push the last column past the right edge
+// (narrower drift since it's one probe measurement instead of a per-row
+// sum, but the failure mode — a clipped character — is just as visible).
 // A single correction only covers small drift (a window resize); a bigger
-// jump (e.g. a large font-size change) can overflow by more than one row,
-// so this actually loops rather than checking just once — each
+// jump (e.g. a large font-size change) can overflow by more than one row
+// or column, so this actually loops rather than checking just once — each
 // getBoundingClientRect() forces layout to reflect the resize that just
 // happened, so the next check in the same loop sees accurate geometry.
 function safeFit(term: Terminal, fit: FitAddon, pane: HTMLElement) {
@@ -1221,10 +1224,15 @@ function safeFit(term: Terminal, fit: FitAddon, pane: HTMLElement) {
     // Capped well above any plausible overflow — guards against looping
     // forever if geometry ever fails to converge for an unexpected reason.
     for (let guard = 0; guard < 50; guard++) {
-      if (screen.getBoundingClientRect().bottom <= pane.getBoundingClientRect().bottom + 0.5 || term.rows <= 1) {
-        break;
-      }
-      term.resize(term.cols, term.rows - 1);
+      const screenRect = screen.getBoundingClientRect();
+      const paneRect = pane.getBoundingClientRect();
+      const overflowsBottom = screenRect.bottom > paneRect.bottom + 0.5 && term.rows > 1;
+      const overflowsRight = screenRect.right > paneRect.right + 0.5 && term.cols > 1;
+      if (!overflowsBottom && !overflowsRight) break;
+      term.resize(
+        overflowsRight ? term.cols - 1 : term.cols,
+        overflowsBottom ? term.rows - 1 : term.rows,
+      );
     }
   });
 }
