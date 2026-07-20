@@ -523,6 +523,51 @@ mod tests {
         assert_eq!(sh_squote("it's"), r"'it'\''s'");
     }
 
+    // Runs the real ZDOTDIR-indirection bootstrap through an actual zsh
+    // binary (present on the macOS CI runner, where oh-my-zsh sourcing was
+    // otherwise only checkable by hand) and asserts a stand-in for the
+    // user's real .zshrc (an oh-my-zsh install sources exactly the same
+    // way) is reached.
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn zsh_zdotdir_bootstrap_sources_user_zshrc() {
+        if std::process::Command::new("zsh")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("zsh not found on this machine, skipping");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("afk-zsh-test-{}", std::process::id()));
+        let user_home = tmp.join("home");
+        std::fs::create_dir_all(&user_home).unwrap();
+        std::fs::write(
+            user_home.join(".zshrc"),
+            "export AFK_TEST_MARKER=from-user-zshrc\n",
+        )
+        .unwrap();
+
+        let integration_dir = write_shell_integration().expect("write_shell_integration failed");
+
+        let output = std::process::Command::new("zsh")
+            .env("ZDOTDIR", integration_dir.join("zdotdir"))
+            .env("AFKODE_USER_ZDOTDIR", &user_home)
+            .args(["-i", "-c", "echo $AFK_TEST_MARKER"])
+            .output()
+            .expect("failed to spawn zsh");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("from-user-zshrc"),
+            "expected the ZDOTDIR bootstrap to source the user's real .zshrc; \
+             stdout={stdout:?} stderr={:?}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[cfg(target_os = "windows")]
     #[test]
     fn ps_squote_escapes_single_quotes() {

@@ -1342,12 +1342,6 @@ async function newSession(
     minimumContrastRatio: 1,
     cursorBlink: true,
     cursorStyle: "bar",
-    // Without this, xterm.js treats Option as a dead-key/composition
-    // modifier on macOS instead of sending ESC-prefixed bytes, so
-    // Option+Left/Right never reach the shell as the ESC b / ESC f
-    // sequences readline (and Claude Code's own Option-based input)
-    // expect for word-wise cursor movement.
-    macOptionIsMeta: true,
     // Memory: 2k lines is plenty for supervision; agents redraw their TUI.
     scrollback: 2000,
     theme: themeDef.term,
@@ -1474,6 +1468,25 @@ async function newSession(
   term.attachCustomKeyEventHandler((ev) => {
     if (deadKey.handle(ev)) return false;
     if (ev.type !== "keydown") return true;
+    // Option+Left/Right word-jump. macOptionIsMeta would fix this at the
+    // xterm.js level, but it turns *every* Option-modified key into an
+    // ESC-prefixed byte — breaking Option-key dead-key accent composition
+    // (ñ, á, ü, ...) that xtermDeadKeyAddon exists to support. So instead
+    // we hand-emit the ESC b / ESC f sequences readline's default emacs
+    // keymap already binds to backward-word/forward-word, scoped to just
+    // these two keys, leaving every other Option chord untouched.
+    if (
+      isMac() &&
+      ev.altKey &&
+      !ev.metaKey &&
+      !ev.ctrlKey &&
+      !ev.shiftKey &&
+      (ev.code === "ArrowLeft" || ev.code === "ArrowRight")
+    ) {
+      ev.preventDefault();
+      invoke("write_pty", { id, data: ev.code === "ArrowLeft" ? "\x1bb" : "\x1bf" }).catch(() => {});
+      return false;
+    }
     // AI command search (F3) — shell tabs only, so agent TUIs never see it.
     // '#' only fires at a verifiably idle, empty prompt (OSC 133 state);
     // Ctrl+Space works regardless, as the explicit opt-in gesture.
