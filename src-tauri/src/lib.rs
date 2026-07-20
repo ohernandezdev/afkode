@@ -17,7 +17,11 @@ const GHOST_SHORTCUT: &str = "alt+g";
 const APPROVE_SHORTCUT: &str = "alt+a";
 const PALETTE_SHORTCUT: &str = "alt+p";
 const PALETTE_SHORTCUT_ALT: &str = "ctrl+alt+p";
-const DND_SHORTCUT: &str = "alt+n";
+// Plain alt+n collides with the macOS tilde dead-key (Option+N composes
+// ñ/ã/õ on Spanish, Portuguese, US-International, ABNT2 layouts) — a global
+// shortcut registration swallows it at the OS level before the webview ever
+// sees the keystroke, silently breaking accent composition system-wide.
+const DND_SHORTCUT: &str = "alt+shift+n";
 
 /// Owns a Windows Job Object with KILL_ON_JOB_CLOSE: dropping the last
 /// handle terminates every process assigned to the job. Killing only the
