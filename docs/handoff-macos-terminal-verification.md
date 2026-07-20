@@ -7,6 +7,44 @@ was authored from a Windows machine with no macOS hardware access, so
 none of it has been runtime-verified. That's the job for whoever picks
 this up on macOS.
 
+## Verification results (2026-07-20, real macOS 15.7.7 hardware)
+
+All 5 checks below run against the actual `npm run tauri dev` build
+(confirmed via a temporary `write_pty` debug print showing the exact
+bytes reaching the PTY — watch out for a stale globally-installed
+`/Applications/AFKode.app` shadowing the dev build under the same
+process/window name, which is what happened here on the first pass).
+
+1. ✅ Option+Left/Right word-jump — bytes `[27, 98]` / `[27, 98]`
+   (`ESC b` ×2) reached the PTY, cursor landed exactly between "one"
+   and "two" in `cat one two three`.
+2. ❌→✅ **Found and fixed a real regression, not caused by this fix.**
+   `src-tauri/src/lib.rs` registers `alt+n` as an OS-level global
+   shortcut (DND toggle). Global shortcuts are captured before the
+   webview ever sees the keystroke, so Option+N — the standard macOS
+   tilde dead-key for ñ/ã/õ on Spanish, Portuguese, US-International and
+   ABNT2 layouts — never reached `xtermDeadKeyAddon`, breaking accent
+   composition system-wide (not just inside AFKode) whenever the app is
+   running. Fixed in `50a653c` by moving the shortcut to `alt+shift+n`.
+   Confirmed after the fix: `cañ` composes correctly.
+3. ✅ Option+Shift+Arrow reaches the PTY untouched — bytes
+   `[27,91,49,59,52,68]` (`ESC[1;4D`, xterm's standard Shift+Alt+Left
+   encoding), not swallowed by any global shortcut.
+4. ✅ Fresh terminal tab shows the real oh-my-zsh setup (nvm banner,
+   live directory/file completions) — not the bare default prompt.
+5. ✅ Cmd+C copies the actual selection (verified via the system
+   clipboard); Cmd+Up/Down block navigation doesn't leak any bytes to
+   the PTY (confirmed via the same debug instrumentation).
+
+Also ran `cargo test` on real macOS hardware (not just the
+`macos-latest` CI runner): 10/10 passing, including
+`zsh_zdotdir_bootstrap_sources_user_zshrc`.
+
+One correction to the shortcut audit below: "none overlap arrow-key or
+Option+Shift chords" was true as stated, but incomplete — it didn't
+check overlap against plain-letter dead-key composition, which is where
+`alt+n` actually collided.
+
 ## What changed
 
 - `src/main.ts` (`attachCustomKeyEventHandler`, right after the
