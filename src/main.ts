@@ -1342,6 +1342,12 @@ async function newSession(
     minimumContrastRatio: 1,
     cursorBlink: true,
     cursorStyle: "bar",
+    // Without this, xterm.js treats Option as a dead-key/composition
+    // modifier on macOS instead of sending ESC-prefixed bytes, so
+    // Option+Left/Right never reach the shell as the ESC b / ESC f
+    // sequences readline (and Claude Code's own Option-based input)
+    // expect for word-wise cursor movement.
+    macOptionIsMeta: true,
     // Memory: 2k lines is plenty for supervision; agents redraw their TUI.
     scrollback: 2000,
     theme: themeDef.term,
