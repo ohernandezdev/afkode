@@ -26,6 +26,7 @@ import { CommandBlocks } from "./blocks";
 import { WebKitDeadKeyAddon } from "./xtermDeadKeyAddon";
 import { MODEL_EXTS } from "./modelExts";
 import type { ModelPreview } from "./modelPreview";
+import { startTour, type TourStep } from "./tour";
 
 // ── Themes ────────────────────────────────────────────────
 
@@ -357,6 +358,20 @@ const I18N: Record<Lang, Record<string, string>> = {
     restoreAsk: "Preguntar",
     restoreNever: "Nunca",
     restoreNote: "Reabre tus pestañas (orden, nombres, colores y carpetas). Las pestañas de Claude ofrecen retomar la conversación anterior.",
+    tourLabel: "Recorrido guiado",
+    tourReplayBtn: "Ver el recorrido",
+    tourSkip: "Saltar",
+    tourNext: "Siguiente",
+    tourDone: "Listo",
+    tourStepOf: "Paso {i} de {n}",
+    tourStep1Title: "Abre una nueva pestaña",
+    tourStep1Body: "El botón + lanza Claude Code, OpenCode, Codex o PowerShell en la carpeta que elijas.",
+    tourStep2Title: "Tu terminal",
+    tourStep2Body: "ConPTY con render por GPU: colores completos y apps interactivas con impacto mínimo en tus FPS.",
+    tourStep3Title: "Vista previa de archivos",
+    tourStep3Body: "Al abrir un archivo se muestra aquí: código, imágenes e incluso modelos 3D (.glb, .gltf, .obj, .stl).",
+    tourStep4Title: "Búsqueda global",
+    tourStep4Body: "Pulsa Ctrl+K en cualquier momento para saltar a archivos, comandos o sesiones.",
     restoreBannerText: "¿Restaurar tu última sesión? ({n} pestañas)",
     restoreBtn: "Restaurar",
     resumeQuestion: "¿Retomar la conversación anterior?",
@@ -484,6 +499,20 @@ const I18N: Record<Lang, Record<string, string>> = {
     restoreAsk: "Ask",
     restoreNever: "Never",
     restoreNote: "Reopens your tabs (order, names, colors and folders). Claude tabs offer to resume the previous conversation.",
+    tourLabel: "Guided tour",
+    tourReplayBtn: "Take the tour",
+    tourSkip: "Skip",
+    tourNext: "Next",
+    tourDone: "Done",
+    tourStepOf: "Step {i} of {n}",
+    tourStep1Title: "Open a new tab",
+    tourStep1Body: "The + button launches Claude Code, OpenCode, Codex, or PowerShell in a folder you pick.",
+    tourStep2Title: "Your terminal",
+    tourStep2Body: "ConPTY with GPU rendering: full colors and interactive apps with minimal impact on your FPS.",
+    tourStep3Title: "File preview",
+    tourStep3Body: "Open a file and it shows up here: code, images, and even 3D models (.glb, .gltf, .obj, .stl).",
+    tourStep4Title: "Global search",
+    tourStep4Body: "Press Ctrl+K anytime to jump to files, commands, or sessions.",
     restoreBannerText: "Restore your last session? ({n} tabs)",
     restoreBtn: "Restore",
     resumeQuestion: "Resume previous conversation?",
@@ -611,6 +640,20 @@ const I18N: Record<Lang, Record<string, string>> = {
     restoreAsk: "Demander",
     restoreNever: "Jamais",
     restoreNote: "Rouvre vos onglets (ordre, noms, couleurs et dossiers). Les onglets Claude proposent de reprendre la conversation précédente.",
+    tourLabel: "Visite guidée",
+    tourReplayBtn: "Revoir la visite",
+    tourSkip: "Passer",
+    tourNext: "Suivant",
+    tourDone: "Terminé",
+    tourStepOf: "Étape {i} sur {n}",
+    tourStep1Title: "Ouvrez un nouvel onglet",
+    tourStep1Body: "Le bouton + lance Claude Code, OpenCode, Codex ou PowerShell dans le dossier de votre choix.",
+    tourStep2Title: "Votre terminal",
+    tourStep2Body: "ConPTY avec rendu GPU : couleurs complètes et applications interactives, impact minimal sur vos FPS.",
+    tourStep3Title: "Aperçu des fichiers",
+    tourStep3Body: "Ouvrez un fichier et il s'affiche ici : code, images et même modèles 3D (.glb, .gltf, .obj, .stl).",
+    tourStep4Title: "Recherche globale",
+    tourStep4Body: "Appuyez sur Ctrl+K à tout moment pour accéder aux fichiers, commandes ou sessions.",
     restoreBannerText: "Restaurer votre dernière session ? ({n} onglets)",
     restoreBtn: "Restaurer",
     resumeQuestion: "Reprendre la conversation précédente ?",
@@ -738,6 +781,20 @@ const I18N: Record<Lang, Record<string, string>> = {
     restoreAsk: "Chiedi",
     restoreNever: "Mai",
     restoreNote: "Riapre le tue schede (ordine, nomi, colori e cartelle). Le schede Claude offrono di riprendere la conversazione precedente.",
+    tourLabel: "Visita guidata",
+    tourReplayBtn: "Rivedi la visita",
+    tourSkip: "Salta",
+    tourNext: "Avanti",
+    tourDone: "Fine",
+    tourStepOf: "Passo {i} di {n}",
+    tourStep1Title: "Apri una nuova scheda",
+    tourStep1Body: "Il pulsante + avvia Claude Code, OpenCode, Codex o PowerShell nella cartella che scegli.",
+    tourStep2Title: "Il tuo terminale",
+    tourStep2Body: "ConPTY con rendering GPU: colori completi e app interattive con impatto minimo sugli FPS.",
+    tourStep3Title: "Anteprima file",
+    tourStep3Body: "Apri un file e viene mostrato qui: codice, immagini e persino modelli 3D (.glb, .gltf, .obj, .stl).",
+    tourStep4Title: "Ricerca globale",
+    tourStep4Body: "Premi Ctrl+K in qualsiasi momento per saltare a file, comandi o sessioni.",
     restoreBannerText: "Ripristinare l'ultima sessione? ({n} schede)",
     restoreBtn: "Ripristina",
     resumeQuestion: "Riprendere la conversazione precedente?",
@@ -2597,6 +2654,55 @@ wireSwitch("#chk-hooks", "hooks");
 wireSwitch("#chk-matchmode", "matchMode");
 wireSwitch("#chk-aisearch", "aiSearch");
 
+// ── Onboarding tour ───────────────────────────────────────
+
+function buildTourSteps(): TourStep[] {
+  const previewModal = $("#file-preview-modal");
+  const wasOpen = previewModal.classList.contains("open");
+  return [
+    {
+      selector: "#btn-new-tab",
+      title: t("tourStep1Title"),
+      body: t("tourStep1Body"),
+    },
+    {
+      selector: "#terminals",
+      title: t("tourStep2Title"),
+      body: t("tourStep2Body"),
+    },
+    {
+      selector: "#file-preview-modal",
+      title: t("tourStep3Title"),
+      body: t("tourStep3Body"),
+      onEnter: () => previewModal.classList.add("open"),
+      onLeave: () => {
+        if (!wasOpen) previewModal.classList.remove("open");
+      },
+    },
+    {
+      selector: "#btn-global-search",
+      title: t("tourStep4Title"),
+      body: t("tourStep4Body"),
+    },
+  ];
+}
+
+function tourLabels() {
+  return {
+    skip: t("tourSkip"),
+    next: t("tourNext"),
+    done: t("tourDone"),
+    stepOf: (i: number, n: number) => t("tourStepOf").replace("{i}", String(i)).replace("{n}", String(n)),
+  };
+}
+
+function replayTour() {
+  $("#settings-modal").classList.add("hidden");
+  startTour(buildTourSteps(), tourLabels(), () => {});
+}
+
+$<HTMLButtonElement>("#btn-replay-tour").addEventListener("click", replayTour);
+
 const selRestore = $<HTMLSelectElement>("#sel-restore");
 selRestore.value = settings.restore;
 selRestore.addEventListener("change", () => {
@@ -3594,8 +3700,10 @@ refreshCliButtons().then(() => {
   }
 });
 
-// First run: show the help card once so the user discovers the features.
-if (!localStorage.getItem("help-seen")) {
-  helpModal.classList.remove("hidden");
-  localStorage.setItem("help-seen", "1");
+// First run: walk the user through the core UI once. The static help
+// card (still reachable any time via the help button) stays available
+// as reference material afterward.
+if (!localStorage.getItem("tour-seen")) {
+  localStorage.setItem("tour-seen", "1");
+  startTour(buildTourSteps(), tourLabels(), () => {});
 }
