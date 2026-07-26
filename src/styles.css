@@ -1379,7 +1379,9 @@ kbd {
 .file-preview-panel {
   position: absolute;
   inset: 0 0 0 auto;
-  z-index: 45;
+  /* Above every other in-page overlay (empty-state, toasts, tab menus) so
+     its close button is never covered and unclickable. */
+  z-index: 90;
   width: min(440px, 88%);
   display: flex;
   flex-direction: column;

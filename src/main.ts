@@ -1455,13 +1455,24 @@ async function newSession(
     } catch {
       /* clipboard is not text */
     }
+    // Claude Code has its own native clipboard-image paste (shows as
+    // "[Image #1]" and sends the real bytes) — it reads the OS clipboard
+    // itself the moment it sees a raw Ctrl+V keystroke, exactly like it
+    // would in a bare terminal. Feed it that keystroke directly instead of
+    // pre-empting it with our own temp-file substitution, so Claude Code's
+    // own handling runs unmodified.
+    if (/^claude(\s|$)/.test(cmd)) {
+      invoke("write_pty", { id, data: "\x16" }).catch(() => {});
+      return;
+    }
     try {
       const path = await invoke<string>("clipboard_image_to_temp");
       if (path) {
         // No text on the clipboard, only image data (e.g. a screenshot
         // tool was used instead of copying text) — falling back to
         // pasting its temp path silently looks like AFKode just broke
-        // when someone actually wanted to paste a URL/token.
+        // when someone actually wanted to paste a URL/token. Only reached
+        // for CLIs without their own native image-paste support.
         showLinkToast(t("pastedImageInstead"));
         invoke("write_pty", { id, data: `"${path}"` }).catch(() => {});
       }
@@ -3234,7 +3245,13 @@ function fileLinkProvider(term: Terminal, cwd: string | null) {
         links.push({
           range: { start: { x: startCol + 1, y }, end: { x: endCol + 1, y } },
           text: full,
-          activate: () => openFilePreview(full, cwd),
+          // detail === 0 marks a click synthesized from keyboard activation
+          // (Enter/Space on a focused element) rather than an actual mouse
+          // click — the preview must only open from a real pointer click.
+          activate: (event) => {
+            if (event.detail === 0) return;
+            openFilePreview(full, cwd);
+          },
         });
       }
       cb(links.length ? links : undefined);
@@ -3264,9 +3281,24 @@ function disposeModelPreview() {
   currentModelPreview = null;
 }
 
-$("#file-preview-close").addEventListener("click", () => {
+function closeFilePreview() {
   filePreviewModal.classList.remove("open");
   disposeModelPreview();
+  setPreviewEditing(false);
+  // Release state immediately rather than leaving the last-viewed file
+  // sitting in the DOM/vars until something else happens to open — a
+  // stale path/body from an unrelated tab must never linger past close.
+  previewPath = null;
+  previewText = null;
+  filePreviewTitle.textContent = "";
+  filePreviewBody.replaceChildren();
+}
+$("#file-preview-close").addEventListener("click", closeFilePreview);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && filePreviewModal.classList.contains("open")) {
+    e.preventDefault();
+    closeFilePreview();
+  }
 });
 
 const filePreviewEditBtn = $("#file-preview-edit");
@@ -3330,8 +3362,7 @@ document.addEventListener("click", (e) => {
     filePreviewModal.classList.contains("open") &&
     !filePreviewModal.contains(e.target as Node)
   ) {
-    filePreviewModal.classList.remove("open");
-    disposeModelPreview();
+    closeFilePreview();
   }
 });
 
