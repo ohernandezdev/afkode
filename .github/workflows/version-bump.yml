@@ -59,7 +59,12 @@ jobs:
           SUBJECTS=$(git log "$RANGE" --pretty=%s)
           BODIES=$(git log "$RANGE" --pretty=%b)
           LEVEL="none"
-          if echo "$SUBJECTS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' || echo "$BODIES" | grep -q 'BREAKING CHANGE'; then
+          # The Conventional Commits spec requires BREAKING CHANGE as a footer
+          # token at the start of its own line ("BREAKING CHANGE: ..."), not
+          # just the phrase appearing anywhere in the body — a body merely
+          # *describing* the convention (e.g. this very commit's own message)
+          # would otherwise false-trigger a major bump.
+          if echo "$SUBJECTS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' || echo "$BODIES" | grep -qE '^BREAKING[ -]CHANGE:'; then
             LEVEL="major"
           elif echo "$SUBJECTS" | grep -qE '^feat(\([^)]*\))?:'; then
             LEVEL="minor"
@@ -110,10 +115,12 @@ jobs:
           # `version = "..."` in the file, right under [package].
           sed -i "0,/^version = \"[^\"]*\"/s//version = \"$NEW\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"$NEW\"/" src-tauri/tauri.conf.json
-          # `cargo check` is the same mechanism the manual convention relied
-          # on to sync Cargo.lock's afkode entry to the new Cargo.toml
-          # version without touching any dependency's resolved version.
-          (cd src-tauri && cargo check)
+          # `cargo metadata` resolves the dependency graph — including
+          # syncing Cargo.lock's afkode entry to the new Cargo.toml version —
+          # without invoking any build script. `cargo check`/`cargo build`
+          # would, and this app's Linux GTK/WebKit system deps (installed by
+          # release.yml, not here) aren't present on this job's runner.
+          (cd src-tauri && cargo metadata --format-version 1 > /dev/null)
 
       - name: Commit, tag, and push
         if: steps.bump.outputs.level != 'none'
