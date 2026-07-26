@@ -12,7 +12,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
@@ -388,6 +388,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copiado al portapapeles",
     filePreviewSaved: "Guardado",
     filePreviewSaveError: "No se pudo guardar el archivo",
+    ctxPaste: "Pegar",
+    ctxSelectAll: "Seleccionar todo",
+    ctxFind: "Buscar…",
+    ctxClear: "Limpiar pantalla",
+    ctxScrollBottom: "Ir al final",
+    ctxCopyOutput: "Copiar salida del comando",
+    ctxStopProcess: "Detener proceso (Ctrl+C)",
+    ctxRevealExplorer: "Mostrar en el explorador de archivos",
+    ctxCloseTab: "Cerrar pestaña",
     closeTabConfirm: "Hay un proceso en ejecución en esta pestaña. ¿Cerrarla de todas formas?",
     closeTabConfirmTitle: "Cerrar pestaña",
     closeTabConfirmOk: "Cerrar de todas formas",
@@ -529,6 +538,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copied to clipboard",
     filePreviewSaved: "Saved",
     filePreviewSaveError: "Couldn't save the file",
+    ctxPaste: "Paste",
+    ctxSelectAll: "Select All",
+    ctxFind: "Find…",
+    ctxClear: "Clear Screen",
+    ctxScrollBottom: "Scroll to Bottom",
+    ctxCopyOutput: "Copy Command Output",
+    ctxStopProcess: "Stop Process (Ctrl+C)",
+    ctxRevealExplorer: "Show in File Explorer",
+    ctxCloseTab: "Close Tab",
     closeTabConfirm: "This tab has a running process. Close it anyway?",
     closeTabConfirmTitle: "Close tab",
     closeTabConfirmOk: "Close anyway",
@@ -670,6 +688,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copié dans le presse-papiers",
     filePreviewSaved: "Enregistré",
     filePreviewSaveError: "Impossible d'enregistrer le fichier",
+    ctxPaste: "Coller",
+    ctxSelectAll: "Tout sélectionner",
+    ctxFind: "Rechercher…",
+    ctxClear: "Effacer l'écran",
+    ctxScrollBottom: "Aller en bas",
+    ctxCopyOutput: "Copier la sortie de la commande",
+    ctxStopProcess: "Arrêter le processus (Ctrl+C)",
+    ctxRevealExplorer: "Afficher dans l'explorateur de fichiers",
+    ctxCloseTab: "Fermer l'onglet",
     closeTabConfirm: "Un processus est en cours d'exécution dans cet onglet. Le fermer quand même ?",
     closeTabConfirmTitle: "Fermer l'onglet",
     closeTabConfirmOk: "Fermer quand même",
@@ -811,6 +838,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     filePreviewCopied: "Copiato negli appunti",
     filePreviewSaved: "Salvato",
     filePreviewSaveError: "Impossibile salvare il file",
+    ctxPaste: "Incolla",
+    ctxSelectAll: "Seleziona tutto",
+    ctxFind: "Trova…",
+    ctxClear: "Pulisci schermo",
+    ctxScrollBottom: "Vai in fondo",
+    ctxCopyOutput: "Copia output del comando",
+    ctxStopProcess: "Interrompi processo (Ctrl+C)",
+    ctxRevealExplorer: "Mostra in Esplora file",
+    ctxCloseTab: "Chiudi scheda",
     closeTabConfirm: "In questa scheda è in esecuzione un processo. Chiuderla comunque?",
     closeTabConfirmTitle: "Chiudi scheda",
     closeTabConfirmOk: "Chiudi comunque",
@@ -1606,12 +1642,50 @@ async function newSession(
   pane.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
     const sel = term.getSelection();
-    if (sel) {
-      clipWrite(sel).catch(() => {});
-      term.clearSelection();
-    } else {
-      pasteFromClipboard();
-    }
+    const rowText = rowTextAtPoint(pane, ev.clientY);
+    const linkMatch = rowText ? FILE_LINK_RE.exec(rowText) : null;
+
+    openTermContextMenu(
+      [
+        {
+          label: t("copy"),
+          disabled: !sel,
+          onClick: () => {
+            if (sel) clipWrite(sel).catch(() => {});
+            term.clearSelection();
+          },
+        },
+        { label: t("ctxPaste"), onClick: () => pasteFromClipboard() },
+        sep,
+        {
+          label: t("ctxCopyOutput"),
+          hidden: !blocks.active(),
+          onClick: () => blocks.copySelectedOutput(),
+        },
+        { label: t("ctxSelectAll"), onClick: () => term.selectAll() },
+        { label: t("ctxFind"), onClick: () => openSearch() },
+        { label: t("ctxScrollBottom"), onClick: () => term.scrollToBottom() },
+        { label: t("ctxClear"), onClick: () => term.clear() },
+        sep,
+        {
+          label: t("ctxStopProcess"),
+          hidden: !session.alive,
+          onClick: () => invoke("write_pty", { id, data: "\x03" }).catch(() => {}),
+        },
+        {
+          label: t("ctxRevealExplorer"),
+          hidden: !linkMatch,
+          onClick: () => {
+            if (linkMatch) revealItemInDir(resolveFilePath(linkMatch[0], cwd)).catch(() => {});
+          },
+        },
+        sep,
+        { label: t("tooltipNew"), onClick: () => $("#btn-new-tab").click() },
+        { label: t("ctxCloseTab"), onClick: () => closeSession(id) },
+      ],
+      ev.clientX,
+      ev.clientY,
+    );
   });
 
   const session: Session = {
@@ -2941,6 +3015,66 @@ document.addEventListener("click", (e) => {
   if (!tabColorMenu.contains(e.target as Node)) tabColorMenu.classList.add("hidden");
 });
 
+// ── Terminal right-click menu ───────────────────────────────
+
+// WebGL rendering draws rows to canvas, leaving no per-character DOM to hit
+// -test — but xterm's screenReaderMode keeps one accessibility row div per
+// line, positioned to match the real rendered row, which doubles as a free
+// row-text-at-a-point lookup.
+function rowTextAtPoint(pane: HTMLElement, y: number): string {
+  const rows = pane.querySelectorAll(".xterm-accessibility-tree > *");
+  for (const row of rows) {
+    const r = row.getBoundingClientRect();
+    if (y >= r.top && y < r.bottom) return row.textContent ?? "";
+  }
+  return "";
+}
+
+type CtxItem =
+  | "sep"
+  | { label: string; onClick: () => void; disabled?: boolean; hidden?: boolean };
+const sep: CtxItem = "sep";
+
+const termContextMenu = $("#term-context-menu");
+
+function openTermContextMenu(items: CtxItem[], x: number, y: number) {
+  termContextMenu.replaceChildren();
+  let pendingSep = false;
+  for (const item of items) {
+    if (item === "sep") {
+      pendingSep = termContextMenu.childElementCount > 0;
+      continue;
+    }
+    if (item.hidden) continue;
+    if (pendingSep) {
+      termContextMenu.appendChild(document.createElement("div")).className = "term-context-sep";
+      pendingSep = false;
+    }
+    const btn = document.createElement("button");
+    btn.className = "term-context-item";
+    btn.textContent = item.label;
+    btn.disabled = !!item.disabled;
+    btn.addEventListener("click", () => {
+      termContextMenu.classList.add("hidden");
+      item.onClick();
+    });
+    termContextMenu.appendChild(btn);
+  }
+  // Clamp so a right-click near the window edge doesn't open off-screen.
+  termContextMenu.classList.remove("hidden");
+  const menuRect = termContextMenu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - menuRect.width - 8);
+  const top = Math.min(y, window.innerHeight - menuRect.height - 8);
+  termContextMenu.style.left = `${Math.max(8, left)}px`;
+  termContextMenu.style.top = `${Math.max(8, top)}px`;
+}
+document.addEventListener("click", (e) => {
+  if (!termContextMenu.contains(e.target as Node)) termContextMenu.classList.add("hidden");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") termContextMenu.classList.add("hidden");
+});
+
 $("#btn-ghost").addEventListener("click", () =>
   invoke("set_ghost_mode", { enabled: !overlayEl.classList.contains("ghost") }),
 );
@@ -3206,6 +3340,29 @@ const FILE_LINK_RE = new RegExp(
   "i",
 );
 
+// POSIX absolute paths start with "/" — only meaningful off Windows, where a
+// leading "/" in agent output is instead likely a relative separator
+// artifact and the drive-letter/UNC/~ checks do the work.
+function isAbsolutePath(raw: string): boolean {
+  const win = platform.os === "windows";
+  return (
+    /^[A-Za-z]:[\\/]/.test(raw) ||
+    raw.startsWith("\\\\") ||
+    raw.startsWith("~") ||
+    (!win && raw.startsWith("/"))
+  );
+}
+
+// Resolves a bare/relative-looking path matched from terminal text against
+// the session's cwd — shared by the file-preview panel and the terminal's
+// right-click "Show in File Explorer" action.
+function resolveFilePath(raw: string, cwd: string | null): string {
+  if (isAbsolutePath(raw)) return raw;
+  return platform.os === "windows"
+    ? `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\")
+    : `${cwd ?? "."}/${raw}`;
+}
+
 // WebLinksAddon rejects any match that doesn't round-trip through `new
 // URL()`, which throws for a plain file path — it's built strictly for
 // http(s) links even when given a custom regex. A hand-rolled link
@@ -3402,20 +3559,7 @@ function setPreviewEditing(editing: boolean) {
 }
 
 async function openFilePreview(raw: string, cwd: string | null) {
-  // POSIX absolute paths start with "/" — only meaningful off Windows,
-  // where a leading "/" in agent output is instead likely a relative
-  // separator artifact and the drive-letter/UNC/~ checks do the work.
-  const win = platform.os === "windows";
-  const isAbsolute =
-    /^[A-Za-z]:[\\/]/.test(raw) ||
-    raw.startsWith("\\\\") ||
-    raw.startsWith("~") ||
-    (!win && raw.startsWith("/"));
-  const path = isAbsolute
-    ? raw
-    : win
-      ? `${cwd ?? "."}\\${raw}`.replace(/\//g, "\\")
-      : `${cwd ?? "."}/${raw}`;
+  const path = resolveFilePath(raw, cwd);
   disposeModelPreview();
   previewPath = path;
   previewText = null;
@@ -3425,6 +3569,11 @@ async function openFilePreview(raw: string, cwd: string | null) {
   filePreviewBody.className = "file-preview-body plain";
   filePreviewBody.textContent = "…";
   filePreviewModal.classList.add("open");
+  // Move focus off the terminal and onto the panel: xterm's own keydown
+  // handler treats Escape as a key it must own (cancels the browser event
+  // unconditionally), which stops it from ever reaching our document-level
+  // Escape handler while the terminal textarea still has focus.
+  $("#file-preview-close").focus();
   ignoreNextOutsideClick = true;
   setTimeout(() => (ignoreNextOutsideClick = false), 0);
   const ext = /\.([a-z0-9]+)$/i.exec(path)?.[1].toLowerCase();
@@ -3481,7 +3630,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
     // A bare name with no path separators (e.g. from a bullet list) was
     // guessed relative to the session folder — say so instead of just
     // surfacing a raw "file not found", since the real folder is unknown.
-    const bareName = !isAbsolute && !/[\\/]/.test(raw);
+    const bareName = !isAbsolutePath(raw) && !/[\\/]/.test(raw);
     filePreviewBody.textContent = bareName
       ? `${t("filePreviewNotFoundBare")}\n\n"${raw}" — ${t("filePreviewTriedIn")} ${path}`
       : `${t("filePreviewError")}: ${path}\n${err}`;
