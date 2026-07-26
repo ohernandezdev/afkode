@@ -34,7 +34,11 @@ jobs:
     # further runs — see the note above — but this keeps the job correct
     # even if that ever changes, e.g. a maintainer force-pushing a manual
     # bump commit under their own account.)
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore: bump version to') }}
+    # The whole value must be quoted: an unquoted YAML scalar containing
+    # ": " (a colon followed by a space, as in 'chore: bump version to')
+    # gets parsed as a nested mapping key instead of plain text, which is
+    # an invalid workflow file GitHub Actions won't even schedule a job for.
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore: bump version to') }}"
     steps:
       - uses: actions/checkout@v4
         with:
