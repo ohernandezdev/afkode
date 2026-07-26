@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - "v*"
+  # version-bump.yml pushes its `v*` tag using GITHUB_TOKEN, which GitHub
+  # deliberately excludes from triggering the `push: tags:` rule above (to
+  # prevent bot-authored pushes from cascading into unbounded workflow
+  # runs) — so it dispatches this workflow directly instead. `--ref` on that
+  # dispatch call points this run at the tag itself, so `github.ref_name`
+  # below still resolves to the same `vX.Y.Z` a manually-pushed tag would.
+  workflow_dispatch:
 
 jobs:
   release:

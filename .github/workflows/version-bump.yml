@@ -1,0 +1,131 @@
+name: Version Bump
+
+# Runs after every push to main and decides, from Conventional Commits since
+# the last tag, whether this merge deserves a new version: fix: -> patch,
+# feat: -> minor, a `!` after the type/scope or a `BREAKING CHANGE:` footer
+# -> major. Anything else (chore/docs/refactor/test/ci/style, or a push with
+# no new commits since the last tag) bumps nothing and the job exits early.
+#
+# When a bump is due, it writes the new version into all 4 files the
+# project's manual convention already touched (package.json,
+# package-lock.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock,
+# src-tauri/tauri.conf.json), commits, tags `vX.Y.Z`, and pushes both.
+#
+# The push uses the workflow's own GITHUB_TOKEN. GitHub explicitly does not
+# let a GITHUB_TOKEN-authored push trigger *other* workflow runs (this is
+# what stops an infinite loop here too, on top of the guard below) — so the
+# `v*` tag this job pushes will NOT auto-fire release.yml's `on: push:
+# tags:` trigger. The final step compensates by explicitly dispatching
+# release.yml via the API (`gh workflow run`), which release.yml has to
+# opt into with `workflow_dispatch:`.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    # Without this, the bump commit's own push to main would re-trigger this
+    # same workflow. (In practice GITHUB_TOKEN pushes already don't trigger
+    # further runs — see the note above — but this keeps the job correct
+    # even if that ever changes, e.g. a maintainer force-pushing a manual
+    # bump commit under their own account.)
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore: bump version to') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine bump level from commits since the last tag
+        id: bump
+        run: |
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="$LAST_TAG..HEAD"
+            echo "Scanning commits since $LAST_TAG"
+          else
+            RANGE="HEAD"
+            echo "No prior tag found; scanning full history"
+          fi
+          SUBJECTS=$(git log "$RANGE" --pretty=%s)
+          BODIES=$(git log "$RANGE" --pretty=%b)
+          LEVEL="none"
+          if echo "$SUBJECTS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' || echo "$BODIES" | grep -q 'BREAKING CHANGE'; then
+            LEVEL="major"
+          elif echo "$SUBJECTS" | grep -qE '^feat(\([^)]*\))?:'; then
+            LEVEL="minor"
+          elif echo "$SUBJECTS" | grep -qE '^fix(\([^)]*\))?:'; then
+            LEVEL="patch"
+          fi
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          echo "Bump level: $LEVEL"
+
+      - name: Compute next version
+        id: version
+        if: steps.bump.outputs.level != 'none'
+        run: |
+          set -e
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ steps.bump.outputs.level }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          NEW="$MAJOR.$MINOR.$PATCH"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT -> $NEW"
+
+      - uses: actions/setup-node@v4
+        if: steps.bump.outputs.level != 'none'
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.bump.outputs.level != 'none'
+
+      - uses: swatinem/rust-cache@v2
+        if: steps.bump.outputs.level != 'none'
+        with:
+          workspaces: src-tauri
+
+      - name: Write the new version into every version file
+        if: steps.bump.outputs.level != 'none'
+        run: |
+          set -e
+          NEW="${{ steps.version.outputs.new }}"
+          # Updates package.json and package-lock.json together, the same
+          # way the project's manual bump convention did.
+          npm version "$NEW" --no-git-tag-version --allow-same-version
+          # Cargo.toml's version line is the package's own — the first
+          # `version = "..."` in the file, right under [package].
+          sed -i "0,/^version = \"[^\"]*\"/s//version = \"$NEW\"/" src-tauri/Cargo.toml
+          sed -i "s/\"version\": \"[0-9.]*\"/\"version\": \"$NEW\"/" src-tauri/tauri.conf.json
+          # `cargo check` is the same mechanism the manual convention relied
+          # on to sync Cargo.lock's afkode entry to the new Cargo.toml
+          # version without touching any dependency's resolved version.
+          (cd src-tauri && cargo check)
+
+      - name: Commit, tag, and push
+        if: steps.bump.outputs.level != 'none'
+        run: |
+          set -e
+          NEW="${{ steps.version.outputs.new }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore: bump version to $NEW"
+          git tag "v$NEW"
+          git push origin HEAD:main
+          git push origin "v$NEW"
+
+      - name: Trigger the release build
+        if: steps.bump.outputs.level != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --ref "v${{ steps.version.outputs.new }}"
