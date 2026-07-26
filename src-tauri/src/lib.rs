@@ -112,6 +112,19 @@ struct PtySession {
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// `Child::wait()` blocks until the OS finishes tearing the process down —
+/// on Unix a killed/exited child stays a zombie in the process table until
+/// something calls `wait()` on it. Do that reaping on its own thread, never
+/// inline in a command handler: a Tokio worker thread must never block (see
+/// `write_pty`'s comment), and callers that already removed the session from
+/// the map (`kill_pty`, a reused id in `spawn_pty`) have no later reader
+/// thread left to do it for them.
+fn reap(mut child: Box<dyn Child + Send + Sync>) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+}
+
 #[derive(Default)]
 struct PtyState {
     sessions: Mutex<HashMap<String, PtySession>>,
@@ -846,7 +859,7 @@ async fn spawn_pty(
 
     let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let job = child.process_id().and_then(job_for_child);
-    state.sessions.lock().unwrap().insert(
+    let previous = state.sessions.lock().unwrap().insert(
         id.clone(),
         PtySession {
             master: pair.master,
@@ -856,6 +869,14 @@ async fn spawn_pty(
             _job: job,
         },
     );
+    // The id was already occupied — a reused tab id (e.g. a webview reload)
+    // raced ahead of that old session's own teardown. Its reader thread will
+    // see the `gen` mismatch and back off instead of reaping it, so kill and
+    // reap it here or it's an orphaned, never-waited-on process.
+    if let Some(mut prev) = previous {
+        let _ = prev.child.kill();
+        reap(prev.child);
+    }
 
     // Reader thread: pump PTY output to the frontend as UTF-8 chunks.
     // 32 KiB reads coalesce bursty TUI redraws into fewer IPC events.
@@ -959,12 +980,20 @@ async fn write_pty(state: State<'_, PtyState>, id: String, data: String) -> Resu
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).ok_or("session not found")?.writer.clone()
     };
-    let result = writer
-        .lock()
-        .unwrap()
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string());
-    result
+    // A full ConPTY/pipe write blocks until the child reads (or forever, if
+    // it's stopped/hung). That must happen off the async runtime's worker
+    // threads: this future is polled on Tauri's shared Tokio pool, and a
+    // handful of tabs blocked here would starve every *other* command
+    // (spawning a new tab, resizing, kill_pty) of a worker to run on.
+    tauri::async_runtime::spawn_blocking(move || {
+        writer
+            .lock()
+            .unwrap()
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -974,6 +1003,10 @@ async fn resize_pty(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    // Unlike write_pty's pipe write, this is a single bounded ioctl/WinAPI
+    // call (TIOCSWINSZ / ResizePseudoConsole) with no dependency on the
+    // child reading anything, so it can't wedge the async runtime the same
+    // way — no spawn_blocking needed here.
     let sessions = state.sessions.lock().unwrap();
     let session = sessions.get(&id).ok_or("session not found")?;
     session
@@ -989,9 +1022,14 @@ async fn resize_pty(
 
 #[tauri::command]
 async fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().unwrap();
-    if let Some(mut session) = sessions.remove(&id) {
+    let session = {
+        let mut sessions = state.sessions.lock().unwrap();
+        sessions.remove(&id)
+    };
+    if let Some(mut session) = session {
         let _ = session.child.kill();
+        // Reap off-thread — see `reap`'s doc comment.
+        reap(session.child);
     }
     Ok(())
 }

@@ -1399,8 +1399,13 @@ async function newSession(
   // WKWebView, dead-key layouts (Spanish included) can duplicate the dead
   // char and drop the following key. See xtermDeadKeyAddon.ts for the full
   // writeup. `handle()` is wired into attachCustomKeyEventHandler below.
-  const deadKey = new WebKitDeadKeyAddon((data) => invoke("write_pty", { id, data }).catch(() => {}));
-  term.loadAddon(deadKey);
+  // WKWebView-only bug (see writeup below) — Tauri's Windows webview is
+  // WebView2/Chromium, which doesn't reproduce the malformed event shapes
+  // this addon pattern-matches on. Keep it off there so accented-character
+  // typing never depends on an unenforced "this shouldn't fire on Chromium"
+  // assumption; macOS and Linux (WebKitGTK) both stay covered.
+  const deadKey = platform.os === "windows" ? null : new WebKitDeadKeyAddon((data) => invoke("write_pty", { id, data }).catch(() => {}));
+  if (deadKey) term.loadAddon(deadKey);
   try {
     term.loadAddon(new WebglAddon());
   } catch {
@@ -1466,7 +1471,7 @@ async function newSession(
   };
 
   term.attachCustomKeyEventHandler((ev) => {
-    if (deadKey.handle(ev)) return false;
+    if (deadKey?.handle(ev)) return false;
     if (ev.type !== "keydown") return true;
     // Option+Left/Right word-jump. macOptionIsMeta would fix this at the
     // xterm.js level, but it turns *every* Option-modified key into an
@@ -1507,6 +1512,10 @@ async function newSession(
     const mod = isMac() ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey;
     if (mod && !ev.shiftKey && ev.code === "KeyF") {
       ev.preventDefault();
+      // preventDefault() alone doesn't stop the keydown from bubbling to the
+      // document-level Ctrl+F handler below, which would re-run openSearch()
+      // a second time on the same keystroke.
+      ev.stopPropagation();
       openSearch();
       return false;
     }
@@ -1565,6 +1574,8 @@ async function newSession(
     // this rides Cmd+K instead and Ctrl+K stays a shell editing key.
     if (mod && !ev.shiftKey && ev.code === "KeyK") {
       ev.preventDefault();
+      // Same double-fire concern as Ctrl+F above.
+      ev.stopPropagation();
       openGlobalSearch();
       return false;
     }
@@ -3015,14 +3026,38 @@ const confirmTitleEl = $("#confirm-title");
 const confirmMessageEl = $("#confirm-message");
 const confirmCancelBtn = $("#confirm-cancel");
 const confirmOkBtn = $("#confirm-ok");
-let confirmResolve: ((v: boolean) => void) | null = null;
+interface PendingConfirm {
+  message: string;
+  title: string;
+  okLabel: string;
+  resolve: (v: boolean) => void;
+}
+// A queue, not a single in-flight slot: the palette runs in its own Tauri
+// window and can trigger a second confirmDialog() (e.g. closing another busy
+// tab) while the first is still awaiting a click. A single shared
+// `confirmResolve` would get overwritten — orphaning the first caller's
+// promise forever while the modal now shows the second request's text.
+const confirmQueue: PendingConfirm[] = [];
+
+function showConfirm(req: PendingConfirm) {
+  confirmTitleEl.textContent = req.title;
+  confirmMessageEl.textContent = req.message;
+  confirmCancelBtn.textContent = t("cancel");
+  confirmOkBtn.textContent = req.okLabel;
+  confirmModal.classList.remove("hidden");
+  confirmCancelBtn.focus();
+}
 
 function resolveConfirm(v: boolean) {
-  if (!confirmResolve) return;
-  confirmModal.classList.add("hidden");
-  const resolve = confirmResolve;
-  confirmResolve = null;
-  resolve(v);
+  const req = confirmQueue.shift();
+  if (!req) return;
+  req.resolve(v);
+  const next = confirmQueue[0];
+  if (next) {
+    showConfirm(next);
+  } else {
+    confirmModal.classList.add("hidden");
+  }
 }
 confirmCancelBtn.addEventListener("click", () => resolveConfirm(false));
 confirmOkBtn.addEventListener("click", () => resolveConfirm(true));
@@ -3030,7 +3065,7 @@ confirmModal.addEventListener("click", (e) => {
   if (e.target === confirmModal) resolveConfirm(false);
 });
 document.addEventListener("keydown", (e) => {
-  if (!confirmResolve) return;
+  if (!confirmQueue.length) return;
   if (e.key === "Escape") {
     e.preventDefault();
     resolveConfirm(false);
@@ -3041,14 +3076,10 @@ document.addEventListener("keydown", (e) => {
 });
 
 function confirmDialog(message: string, title: string, okLabel: string): Promise<boolean> {
-  confirmTitleEl.textContent = title;
-  confirmMessageEl.textContent = message;
-  confirmCancelBtn.textContent = t("cancel");
-  confirmOkBtn.textContent = okLabel;
-  confirmModal.classList.remove("hidden");
-  confirmCancelBtn.focus();
   return new Promise((resolve) => {
-    confirmResolve = resolve;
+    const req: PendingConfirm = { message, title, okLabel, resolve };
+    confirmQueue.push(req);
+    if (confirmQueue.length === 1) showConfirm(req);
   });
 }
 
