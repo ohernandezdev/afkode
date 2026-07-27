@@ -1520,6 +1520,18 @@ async function newSession(
   term.attachCustomKeyEventHandler((ev) => {
     if (deadKey?.handle(ev)) return false;
     if (ev.type !== "keydown") return true;
+    // Shift+Tab: xterm.js deliberately leaves this uncancelled (unlike plain
+    // Tab, which it does cancel) so the byte sequence still reaches
+    // app-level consumers like Claude Code's own plan-mode toggle — but that
+    // also lets the browser's native reverse-tab-order focus navigation run,
+    // visibly shading whatever chrome button it lands on. Send the same
+    // CSI Z sequence xterm would have sent and own preventDefault ourselves
+    // instead, so the hotkey still works with no focus side-effect.
+    if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.code === "Tab") {
+      ev.preventDefault();
+      invoke("write_pty", { id, data: "\x1b[Z" }).catch(() => {});
+      return false;
+    }
     // Option+Left/Right word-jump. macOptionIsMeta would fix this at the
     // xterm.js level, but it turns *every* Option-modified key into an
     // ESC-prefixed byte — breaking Option-key dead-key accent composition
