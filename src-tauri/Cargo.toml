@@ -32,6 +32,18 @@ portable-pty = "0.9"
 tiny_http = "0.12"
 base64 = "0.22"
 
+[dev-dependencies]
+# portable-pty's Child/MasterPty traits return anyhow::Error, but portable_pty
+# only imports it privately (no public re-export) — needed by name to
+# implement those traits for the fakes in lib.rs's test module. Already
+# resolved transitively via portable-pty itself; this just makes it directly
+# nameable from test code.
+anyhow = "1"
+# MasterPty::process_group_leader's #[cfg(unix)] signature returns
+# Option<libc::pid_t> — same situation as anyhow above, needed by name only
+# to implement the trait for the unix-only cfg branch of the test fakes.
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

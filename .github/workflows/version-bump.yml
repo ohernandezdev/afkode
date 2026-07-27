@@ -1,7 +1,14 @@
 name: Version Bump
 
-# Runs after every push to main and decides, from Conventional Commits since
-# the last tag, whether this merge deserves a new version: fix: -> patch,
+# Runs after the "CI" workflow finishes on main, and only proceeds if it
+# succeeded — never bump/tag/release a commit that doesn't even compile.
+# (This used to run directly on `push: branches: [main]`, racing CI instead
+# of waiting for it: a commit that failed to compile could still get bumped,
+# tagged, and dispatched to release.yml, which would then fail after the
+# tag was already public.)
+#
+# Once gated on a green CI run, it decides from Conventional Commits since
+# the last tag whether this deserves a new version: fix: -> patch,
 # feat: -> minor, a `!` after the type/scope or a `BREAKING CHANGE:` footer
 # -> major. Anything else (chore/docs/refactor/test/ci/style, or a push with
 # no new commits since the last tag) bumps nothing and the job exits early.
@@ -19,29 +26,49 @@ name: Version Bump
 # release.yml via the API (`gh workflow run`), which release.yml has to
 # opt into with `workflow_dispatch:`.
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 permissions:
   contents: write
   actions: write
 
+# The bump commit's own push re-triggers "CI" (it runs on every push to
+# main), which in turn re-triggers this workflow — the guard below turns
+# that into a fast, harmless no-op (see it below), but two overlapping runs
+# racing to push/tag at once would still be possible without this: e.g. a
+# human push and the bump commit's CI run completing within moments of each
+# other. Queue them instead of letting them interleave.
+concurrency:
+  group: version-bump-main
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: ubuntu-latest
-    # Without this, the bump commit's own push to main would re-trigger this
-    # same workflow. (In practice GITHUB_TOKEN pushes already don't trigger
-    # further runs — see the note above — but this keeps the job correct
-    # even if that ever changes, e.g. a maintainer force-pushing a manual
-    # bump commit under their own account.)
-    # The whole value must be quoted: an unquoted YAML scalar containing
+    # Only proceed for a green CI run on main — never for a failed/cancelled
+    # run, and never for CI runs from a PR branch (those also trigger "CI").
+    # The commit-message check is the same anti-recursion guard as before,
+    # now reading workflow_run's own head_commit instead of push's.
+    # The whole if: value must be quoted: an unquoted YAML scalar containing
     # ": " (a colon followed by a space, as in 'chore: bump version to')
     # gets parsed as a nested mapping key instead of plain text, which is
-    # an invalid workflow file GitHub Actions won't even schedule a job for.
-    if: "${{ !startsWith(github.event.head_commit.message, 'chore: bump version to') }}"
+    # an invalid workflow file GitHub Actions won't even schedule a job for
+    # (this exact bug broke this workflow's first real run).
+    if: >-
+      ${{
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      !startsWith(github.event.workflow_run.head_commit.message, 'chore: bump version to')
+      }}
     steps:
       - uses: actions/checkout@v4
         with:
+          # Pin to the exact commit CI just validated, not whatever main's
+          # tip happens to be when this job starts — those should be the
+          # same commit, but pinning removes any doubt/race.
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Determine bump level from commits since the last tag
