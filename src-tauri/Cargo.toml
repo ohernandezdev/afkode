@@ -39,6 +39,10 @@ base64 = "0.22"
 # resolved transitively via portable-pty itself; this just makes it directly
 # nameable from test code.
 anyhow = "1"
+# MasterPty::process_group_leader's #[cfg(unix)] signature returns
+# Option<libc::pid_t> — same situation as anyhow above, needed by name only
+# to implement the trait for the unix-only cfg branch of the test fakes.
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

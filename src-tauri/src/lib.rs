@@ -1057,51 +1057,18 @@ async fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> 
 mod pty_session_tests {
     use super::*;
 
-    /// A trivial, near-instantly-exiting PTY child, real enough to exercise
-    /// `Child::kill`/`wait` for real without depending on any particular
-    /// shell being on PATH beyond what every Windows/macOS/Linux CI runner
-    /// already has.
-    fn spawn_trivial_session() -> PtySession {
-        let pty_system = native_pty_system();
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("openpty");
-        #[cfg(windows)]
-        let cmd = {
-            let mut c = CommandBuilder::new("cmd.exe");
-            c.args(["/c", "exit", "0"]);
-            c
-        };
-        #[cfg(not(windows))]
-        let cmd = {
-            let mut c = CommandBuilder::new("sh");
-            c.args(["-c", "exit 0"]);
-            c
-        };
-        let child = pair.slave.spawn_command(cmd).expect("spawn");
-        drop(pair.slave);
-        let writer = pair.master.take_writer().expect("writer");
-        PtySession {
-            master: pair.master,
-            writer: std::sync::Arc::new(Mutex::new(writer)),
-            child,
-            gen: SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            _job: None,
-        }
-    }
-
-    // A fake Child/MasterPty pair for tests that only care about session
+    // A fake Child/MasterPty pair — these tests only care about session
     // *bookkeeping* (which entry ends up under an id, whether the old one
-    // was reaped) rather than a real process. Two real PTYs overlapping in
-    // one test process was measured to serialize very slowly on Windows
-    // (ConPTY/conhost teardown, 80s+ for what should be a millisecond
-    // test) — so a "replace an existing session" test keeps only one side
-    // real and uses this for the other.
+    // was reaped), not a real OS process. A real PTY was tried initially,
+    // but even a single one, on this host, made `Drop`-ing its `master`
+    // (a synchronous ConPTY/conhost teardown wait) take anywhere from under
+    // a second to 60+ seconds — the same slow-but-synchronous-drop pattern
+    // that `kill_pty_impl`'s real callers rely on `reap()`'s background
+    // thread to keep off the async runtime for the *child* half; the
+    // `master`/`writer` half's drop isn't similarly deferred (a candidate
+    // for the next stability pass, out of scope here). Too flaky and slow
+    // for a unit test either way — a fake sidesteps host-dependent PTY
+    // teardown timing entirely.
     #[derive(Debug)]
     struct FakeChild;
     impl portable_pty::ChildKiller for FakeChild {
@@ -1183,8 +1150,7 @@ mod pty_session_tests {
     #[test]
     fn kill_pty_removes_and_kills_the_matching_session() {
         let state = PtyState::default();
-        let session = spawn_trivial_session();
-        let pid = session.child.process_id();
+        let session = fake_session();
         state
             .sessions
             .lock()
@@ -1197,16 +1163,12 @@ mod pty_session_tests {
             state.sessions.lock().unwrap().get("tab-1").is_none(),
             "killed session must be removed from the map"
         );
-        assert!(pid.is_some(), "sanity: the trivial child had a real pid");
     }
 
     #[test]
     fn inserting_over_a_reused_id_reaps_the_previous_child() {
         let state = PtyState::default();
-        // The soon-to-be-replaced session is a real spawned process, so
-        // `insert_session`'s kill()+reap() runs against a real child — the
-        // replacement is a fake, so only one real PTY is ever open at once.
-        let first = spawn_trivial_session();
+        let first = fake_session();
         let first_gen = first.gen;
         insert_session(&state, "reused-id".into(), first);
 
@@ -1226,7 +1188,7 @@ mod pty_session_tests {
     #[test]
     fn session_generation_checks_distinguish_current_superseded_and_missing() {
         let mut sessions: HashMap<String, PtySession> = HashMap::new();
-        sessions.insert("tab-1".into(), spawn_trivial_session());
+        sessions.insert("tab-1".into(), fake_session());
         let gen = sessions.get("tab-1").unwrap().gen;
 
         // Same generation: current, not superseded.
