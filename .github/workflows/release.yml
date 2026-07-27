@@ -88,12 +88,36 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "AFKode ${{ github.ref_name }}"
           releaseBody: "See the commit history for changes. Installers below; the updater feeds from latest.json."
-          releaseDraft: false
+          # Stays a draft until every matrix leg has actually finished — see
+          # the `publish` job below. Without this, if e.g. only Windows and
+          # Linux finish before macOS notarization fails, users could already
+          # be downloading (and the updater already pointing at) a release
+          # that's missing the macOS build entirely.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
-  winget:
+  # Only flips the release public once every matrix leg above succeeded —
+  # `needs.release.result` reflects the matrix job as a whole (success only
+  # if every leg succeeded), not just the leg that happens to finish last.
+  # If any leg failed, this job is skipped and the draft is left exactly as
+  # it is — assets from whichever platforms did succeed, still private —
+  # for a human to inspect rather than either quietly going out partial or
+  # getting deleted.
+  publish:
     needs: release
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Make the release public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --repo ${{ github.repository }}
+
+  winget:
+    needs: publish
     runs-on: windows-latest
     # Requires the package to exist in winget-pkgs (initial PR merged);
     # a failure here must not affect the release itself.

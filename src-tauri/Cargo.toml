@@ -32,6 +32,14 @@ portable-pty = "0.9"
 tiny_http = "0.12"
 base64 = "0.22"
 
+[dev-dependencies]
+# portable-pty's Child/MasterPty traits return anyhow::Error, but portable_pty
+# only imports it privately (no public re-export) — needed by name to
+# implement those traits for the fakes in lib.rs's test module. Already
+# resolved transitively via portable-pty itself; this just makes it directly
+# nameable from test code.
+anyhow = "1"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",

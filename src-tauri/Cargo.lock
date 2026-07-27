@@ -12,6 +12,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "afkode"
 version = "0.8.20"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
  "core-foundation",
  "core-graphics 0.24.0",

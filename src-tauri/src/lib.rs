@@ -112,6 +112,22 @@ struct PtySession {
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// True only if the session at `id` still exists and is this generation —
+/// used while a reader thread is streaming output, to decide whether it's
+/// still the owner of that id or should back off (see the reader thread in
+/// `spawn_pty`).
+fn session_is_current(sessions: &HashMap<String, PtySession>, id: &str, gen: u64) -> bool {
+    sessions.get(id).is_some_and(|s| s.gen == gen)
+}
+
+/// True only if the session at `id` still exists but belongs to a *newer*
+/// generation — a reused id (e.g. a webview reload) raced ahead of this
+/// thread's own teardown. False (not true) if the entry is simply gone
+/// already; that's a normal exit, not a supersession.
+fn session_is_superseded(sessions: &HashMap<String, PtySession>, id: &str, gen: u64) -> bool {
+    sessions.get(id).is_some_and(|s| s.gen != gen)
+}
+
 /// `Child::wait()` blocks until the OS finishes tearing the process down —
 /// on Unix a killed/exited child stays a zombie in the process table until
 /// something calls `wait()` on it. Do that reaping on its own thread, never
@@ -123,6 +139,30 @@ fn reap(mut child: Box<dyn Child + Send + Sync>) {
     std::thread::spawn(move || {
         let _ = child.wait();
     });
+}
+
+/// Inserts `session` at `id`, reaping whatever session was already there.
+/// Under normal operation nothing is there (the id is fresh) or the caller
+/// already ran `kill_pty` first — but a reused id can race ahead of its own
+/// teardown (e.g. a webview reload spawning a replacement before the old
+/// session's reader thread notices), and `HashMap::insert` would otherwise
+/// silently drop the previous `PtySession`, orphaning its child.
+fn insert_session(state: &PtyState, id: String, session: PtySession) {
+    let previous = state.sessions.lock().unwrap().insert(id, session);
+    if let Some(mut prev) = previous {
+        let _ = prev.child.kill();
+        reap(prev.child);
+    }
+}
+
+/// The part of `kill_pty` that doesn't need a live `tauri::State` — kept
+/// separate so it's callable from a unit test with a plain `PtyState`.
+fn kill_pty_impl(state: &PtyState, id: &str) {
+    let session = state.sessions.lock().unwrap().remove(id);
+    if let Some(mut session) = session {
+        let _ = session.child.kill();
+        reap(session.child);
+    }
 }
 
 #[derive(Default)]
@@ -859,7 +899,8 @@ async fn spawn_pty(
 
     let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let job = child.process_id().and_then(job_for_child);
-    let previous = state.sessions.lock().unwrap().insert(
+    insert_session(
+        &state,
         id.clone(),
         PtySession {
             master: pair.master,
@@ -869,14 +910,6 @@ async fn spawn_pty(
             _job: job,
         },
     );
-    // The id was already occupied — a reused tab id (e.g. a webview reload)
-    // raced ahead of that old session's own teardown. Its reader thread will
-    // see the `gen` mismatch and back off instead of reaping it, so kill and
-    // reap it here or it's an orphaned, never-waited-on process.
-    if let Some(mut prev) = previous {
-        let _ = prev.child.kill();
-        reap(prev.child);
-    }
 
     // Reader thread: pump PTY output to the frontend as UTF-8 chunks.
     // 32 KiB reads coalesce bursty TUI redraws into fewer IPC events.
@@ -890,14 +923,8 @@ async fn spawn_pty(
         // currently owns that id — duplicated/interleaved lines while the
         // user types in the new session.
         let is_current = || {
-            app.try_state::<PtyState>().is_some_and(|state| {
-                state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&id)
-                    .is_some_and(|s| s.gen == gen)
-            })
+            app.try_state::<PtyState>()
+                .is_some_and(|state| session_is_current(&state.sessions.lock().unwrap(), &id, gen))
         };
         loop {
             match reader.read(&mut chunk) {
@@ -955,7 +982,7 @@ async fn spawn_pty(
         let mut superseded = false;
         let session = app.try_state::<PtyState>().and_then(|state| {
             let mut sessions = state.sessions.lock().unwrap();
-            if sessions.get(&id).is_some_and(|s| s.gen != gen) {
+            if session_is_superseded(&sessions, &id, gen) {
                 superseded = true;
                 return None;
             }
@@ -1022,16 +1049,201 @@ async fn resize_pty(
 
 #[tauri::command]
 async fn kill_pty(state: State<'_, PtyState>, id: String) -> Result<(), String> {
-    let session = {
-        let mut sessions = state.sessions.lock().unwrap();
-        sessions.remove(&id)
-    };
-    if let Some(mut session) = session {
-        let _ = session.child.kill();
-        // Reap off-thread — see `reap`'s doc comment.
-        reap(session.child);
-    }
+    kill_pty_impl(&state, &id);
     Ok(())
+}
+
+#[cfg(test)]
+mod pty_session_tests {
+    use super::*;
+
+    /// A trivial, near-instantly-exiting PTY child, real enough to exercise
+    /// `Child::kill`/`wait` for real without depending on any particular
+    /// shell being on PATH beyond what every Windows/macOS/Linux CI runner
+    /// already has.
+    fn spawn_trivial_session() -> PtySession {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        #[cfg(windows)]
+        let cmd = {
+            let mut c = CommandBuilder::new("cmd.exe");
+            c.args(["/c", "exit", "0"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let cmd = {
+            let mut c = CommandBuilder::new("sh");
+            c.args(["-c", "exit 0"]);
+            c
+        };
+        let child = pair.slave.spawn_command(cmd).expect("spawn");
+        drop(pair.slave);
+        let writer = pair.master.take_writer().expect("writer");
+        PtySession {
+            master: pair.master,
+            writer: std::sync::Arc::new(Mutex::new(writer)),
+            child,
+            gen: SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            _job: None,
+        }
+    }
+
+    // A fake Child/MasterPty pair for tests that only care about session
+    // *bookkeeping* (which entry ends up under an id, whether the old one
+    // was reaped) rather than a real process. Two real PTYs overlapping in
+    // one test process was measured to serialize very slowly on Windows
+    // (ConPTY/conhost teardown, 80s+ for what should be a millisecond
+    // test) — so a "replace an existing session" test keeps only one side
+    // real and uses this for the other.
+    #[derive(Debug)]
+    struct FakeChild;
+    impl portable_pty::ChildKiller for FakeChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            Box::new(FakeChild)
+        }
+    }
+    impl Child for FakeChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+            Ok(Some(portable_pty::ExitStatus::with_exit_code(0)))
+        }
+        fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
+            Ok(portable_pty::ExitStatus::with_exit_code(0))
+        }
+        fn process_id(&self) -> Option<u32> {
+            None
+        }
+        #[cfg(windows)]
+        fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+            None
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeMasterPty;
+    impl MasterPty for FakeMasterPty {
+        fn resize(&self, _size: PtySize) -> Result<(), anyhow::Error> {
+            Ok(())
+        }
+        fn get_size(&self) -> Result<PtySize, anyhow::Error> {
+            Ok(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+        }
+        fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::empty()))
+        }
+        fn take_writer(&self) -> Result<Box<dyn Write + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::sink()))
+        }
+        #[cfg(unix)]
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+        #[cfg(unix)]
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+        #[cfg(unix)]
+        fn tty_name(&self) -> Option<std::path::PathBuf> {
+            None
+        }
+    }
+
+    fn fake_session() -> PtySession {
+        PtySession {
+            master: Box::new(FakeMasterPty),
+            writer: std::sync::Arc::new(Mutex::new(Box::new(std::io::sink()) as Box<dyn Write + Send>)),
+            child: Box::new(FakeChild),
+            gen: SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            _job: None,
+        }
+    }
+
+    #[test]
+    fn kill_pty_on_unknown_id_is_a_noop() {
+        let state = PtyState::default();
+        // Must not panic, and must leave the (already-empty) map alone.
+        kill_pty_impl(&state, "does-not-exist");
+        assert!(state.sessions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn kill_pty_removes_and_kills_the_matching_session() {
+        let state = PtyState::default();
+        let session = spawn_trivial_session();
+        let pid = session.child.process_id();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert("tab-1".into(), session);
+
+        kill_pty_impl(&state, "tab-1");
+
+        assert!(
+            state.sessions.lock().unwrap().get("tab-1").is_none(),
+            "killed session must be removed from the map"
+        );
+        assert!(pid.is_some(), "sanity: the trivial child had a real pid");
+    }
+
+    #[test]
+    fn inserting_over_a_reused_id_reaps_the_previous_child() {
+        let state = PtyState::default();
+        // The soon-to-be-replaced session is a real spawned process, so
+        // `insert_session`'s kill()+reap() runs against a real child — the
+        // replacement is a fake, so only one real PTY is ever open at once.
+        let first = spawn_trivial_session();
+        let first_gen = first.gen;
+        insert_session(&state, "reused-id".into(), first);
+
+        let second = fake_session();
+        let second_gen = second.gen;
+        assert_ne!(first_gen, second_gen);
+
+        // Replacing "reused-id" must not panic and must leave the *new*
+        // session (not the old one) behind under that id.
+        insert_session(&state, "reused-id".into(), second);
+
+        let sessions = state.sessions.lock().unwrap();
+        let current = sessions.get("reused-id").expect("id still present");
+        assert_eq!(current.gen, second_gen, "the newer session must win");
+    }
+
+    #[test]
+    fn session_generation_checks_distinguish_current_superseded_and_missing() {
+        let mut sessions: HashMap<String, PtySession> = HashMap::new();
+        sessions.insert("tab-1".into(), spawn_trivial_session());
+        let gen = sessions.get("tab-1").unwrap().gen;
+
+        // Same generation: current, not superseded.
+        assert!(session_is_current(&sessions, "tab-1", gen));
+        assert!(!session_is_superseded(&sessions, "tab-1", gen));
+
+        // A newer generation reused the id: no longer current, and flagged
+        // as superseded (a live reader thread should back off, not tear
+        // this down as if it were its own exit).
+        assert!(!session_is_current(&sessions, "tab-1", gen + 1));
+        assert!(session_is_superseded(&sessions, "tab-1", gen + 1));
+
+        // The id was never (or no longer) present: neither current nor
+        // superseded — this is a plain, ordinary exit, not a race.
+        assert!(!session_is_current(&sessions, "missing", gen));
+        assert!(!session_is_superseded(&sessions, "missing", gen));
+    }
 }
 
 /// A pre-existing npm install with a custom `prefix` (nvm-windows, a manual
