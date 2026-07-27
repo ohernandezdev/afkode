@@ -3428,6 +3428,23 @@ function showLinkToast(text: string) {
 const filePreviewModal = $("#file-preview-modal");
 const filePreviewTitle = $("#file-preview-title");
 const filePreviewBody = $("#file-preview-body");
+// The panel stays in the DOM (translated off-screen) rather than
+// display:none, so its CSS slide transition can animate — but that also
+// keeps its buttons in the page's normal tab order while "closed". xterm.js
+// deliberately leaves Shift+Tab uncancelled (so app-level Shift+Tab chords
+// like Claude Code's plan-mode toggle still reach the pty), which means the
+// browser's native reverse-tab-order focus navigation runs — and can land
+// right here, scrolling the off-screen panel into view. tabindex="-1" while
+// closed removes it from that path entirely; restored while open so the
+// panel itself is still keyboard-navigable.
+const filePreviewFocusables = [
+  $("#file-preview-copy"),
+  $("#file-preview-edit"),
+  $("#file-preview-close"),
+];
+function setFilePreviewFocusable(focusable: boolean) {
+  for (const el of filePreviewFocusables) el.tabIndex = focusable ? 0 : -1;
+}
 
 // Tracks the live Three.js scene/renderer for the currently open model
 // preview (if any) so it can be torn down before the next preview replaces
@@ -3440,6 +3457,7 @@ function disposeModelPreview() {
 
 function closeFilePreview() {
   filePreviewModal.classList.remove("open");
+  setFilePreviewFocusable(false);
   disposeModelPreview();
   setPreviewEditing(false);
   // Release state immediately rather than leaving the last-viewed file
@@ -3569,6 +3587,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
   filePreviewBody.className = "file-preview-body plain";
   filePreviewBody.textContent = "…";
   filePreviewModal.classList.add("open");
+  setFilePreviewFocusable(true);
   // Move focus off the terminal and onto the panel: xterm's own keydown
   // handler treats Escape as a key it must own (cancels the browser event
   // unconditionally), which stops it from ever reaching our document-level
