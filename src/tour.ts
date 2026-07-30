@@ -8,6 +8,11 @@ export interface TourStep {
   body: string;
   onEnter?: () => void;
   onLeave?: () => void;
+  // Extra delay (ms) before measuring the target's position, for steps
+  // whose onEnter triggers a CSS transition (e.g. sliding a panel into
+  // view) — a single requestAnimationFrame lands ~16ms in, well before a
+  // ~200ms transition finishes, so place() would measure mid-animation.
+  settleMs?: number;
 }
 
 export interface TourLabels {
@@ -94,10 +99,15 @@ export function startTour(
   }
 
   function enterStep() {
-    steps[index].onEnter?.();
+    const step = steps[index];
+    step.onEnter?.();
     // Let onEnter's DOM changes (e.g. opening a panel) settle before
     // measuring positions off it.
-    requestAnimationFrame(place);
+    if (step.settleMs) {
+      setTimeout(() => requestAnimationFrame(place), step.settleMs);
+    } else {
+      requestAnimationFrame(place);
+    }
   }
 
   function leaveStep() {

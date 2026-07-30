@@ -78,3 +78,12 @@ function localizeTooltip() {
   }
 }
 localizeTooltip();
+// The HUD is a separate webview from the main window, but shares the same
+// localStorage origin — the native `storage` event fires here whenever the
+// main window's settings modal changes `lang`, even if this window's own
+// hud-state hasn't changed since (e.g. state stuck on "none"/idle for the
+// whole session). Without this, a language change only reaches the HUD on
+// the next agent state transition, which may be minutes away or never.
+window.addEventListener("storage", (e) => {
+  if (e.key === "settings") localizeTooltip();
+});
