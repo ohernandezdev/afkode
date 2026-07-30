@@ -400,6 +400,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     closeTabConfirm: "Hay un proceso en ejecución en esta pestaña. ¿Cerrarla de todas formas?",
     closeTabConfirmTitle: "Cerrar pestaña",
     closeTabConfirmOk: "Cerrar de todas formas",
+    reloadConfirm: "Recargar cerrará {n} sesión(es) en ejecución. ¿Recargar de todas formas?",
+    reloadConfirmTitle: "Recargar",
+    reloadConfirmOk: "Recargar de todas formas",
     cancel: "Cancelar",
     inboxTitle: "Pendientes de tus agentes",
     inboxApprove: "Aprobar",
@@ -550,6 +553,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     closeTabConfirm: "This tab has a running process. Close it anyway?",
     closeTabConfirmTitle: "Close tab",
     closeTabConfirmOk: "Close anyway",
+    reloadConfirm: "Reloading will end {n} running session(s). Reload anyway?",
+    reloadConfirmTitle: "Reload",
+    reloadConfirmOk: "Reload anyway",
     cancel: "Cancel",
     inboxTitle: "Your agents need you",
     inboxApprove: "Approve",
@@ -700,6 +706,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     closeTabConfirm: "Un processus est en cours d'exécution dans cet onglet. Le fermer quand même ?",
     closeTabConfirmTitle: "Fermer l'onglet",
     closeTabConfirmOk: "Fermer quand même",
+    reloadConfirm: "Recharger mettra fin à {n} session(s) en cours. Recharger quand même ?",
+    reloadConfirmTitle: "Recharger",
+    reloadConfirmOk: "Recharger quand même",
     cancel: "Annuler",
     inboxTitle: "Vos agents ont besoin de vous",
     inboxApprove: "Approuver",
@@ -850,6 +859,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     closeTabConfirm: "In questa scheda è in esecuzione un processo. Chiuderla comunque?",
     closeTabConfirmTitle: "Chiudi scheda",
     closeTabConfirmOk: "Chiudi comunque",
+    reloadConfirm: "Ricaricare terminerà {n} sessione/i in esecuzione. Ricaricare comunque?",
+    reloadConfirmTitle: "Ricarica",
+    reloadConfirmOk: "Ricarica comunque",
     cancel: "Annulla",
     inboxTitle: "I tuoi agenti hanno bisogno di te",
     inboxApprove: "Approva",
@@ -1058,6 +1070,17 @@ function scheduleJournal() {
   journalTimer = window.setTimeout(writeJournal, 500);
 }
 
+// The tray's "Quit" menu item can't just kill everything and app.exit()
+// from Rust: that would race a pending scheduleJournal() debounce (up to
+// 500ms) and lose the just-made layout change. It emits this instead and
+// waits for us to flush synchronously (localStorage.setItem is sync) before
+// calling back into confirm_quit to actually end the process.
+listen("quit-requested", () => {
+  clearTimeout(journalTimer);
+  writeJournal();
+  invoke("confirm_quit").catch(() => {});
+});
+
 function readJournal(): JournalEntry[] {
   try {
     const v = JSON.parse(localStorage.getItem("session-journal") ?? "[]");
@@ -1222,6 +1245,15 @@ async function closeSession(id: string) {
     if (!proceed || !sessions.has(id)) return;
   }
   if (askSession?.id === id) closeAskStrip();
+  // Prefer the visually adjacent tab (next, else previous) over the last
+  // one created — matches every browser/terminal-with-tabs convention and
+  // avoids surprising jumps across an unrelated tab when closing one in
+  // the middle of the strip.
+  const neighborId =
+    activeId === id
+      ? ((s.tab.nextElementSibling ?? s.tab.previousElementSibling) as HTMLElement | null)
+          ?.dataset.id
+      : undefined;
   sessions.delete(id);
   if (s.alive) invoke("kill_pty", { id }).catch(() => {});
   s.blocks.dispose();
@@ -1229,7 +1261,7 @@ async function closeSession(id: string) {
   s.pane.remove();
   s.tab.remove();
   if (activeId === id) {
-    const next = [...sessions.keys()].pop();
+    const next = neighborId && sessions.has(neighborId) ? neighborId : [...sessions.keys()].pop();
     if (next) setActive(next);
     else {
       activeId = null;
@@ -1344,6 +1376,7 @@ async function newSession(
 
   const tab = document.createElement("button");
   tab.className = "tab";
+  tab.dataset.id = id;
   tab.innerHTML = `<span class="tab-dot"></span><span class="tab-title"></span><span class="tab-x" title="×">×</span>`;
   const tabTitleEl = tab.querySelector(".tab-title") as HTMLElement;
   tabTitleEl.textContent = title;
@@ -2813,6 +2846,9 @@ function buildTourSteps(): TourStep[] {
       onLeave: () => {
         if (!wasOpen) previewModal.classList.remove("open");
       },
+      // The panel slides in via a ~0.2s CSS transform transition — wait
+      // for it to finish before place() measures its final position.
+      settleMs: 220,
     },
     {
       selector: "#btn-global-search",
@@ -3228,7 +3264,10 @@ document.addEventListener("keydown", (e) => {
     resolveConfirm(false);
   } else if (e.key === "Enter") {
     e.preventDefault();
-    resolveConfirm(true);
+    // Resolve to whichever button is actually focused — showConfirm()
+    // focuses Cancel by default, so blindly resolving true here would
+    // fire the destructive action while the visible focus ring says Cancel.
+    resolveConfirm(document.activeElement === confirmOkBtn);
   }
 });
 
@@ -3581,6 +3620,11 @@ function langForPath(path: string): string | null {
 let previewPath: string | null = null;
 let previewText: string | null = null; // raw file contents; null for images/errors
 let previewEditing = false;
+// Guards the async reads in openFilePreview below against out-of-order
+// resolution: clicking file A then quickly file B before A's read_text_file
+// resolves must not let A's stale response overwrite B's already-rendered
+// preview (and, worse, get saved back to B's path on Edit → Save).
+let previewSeq = 0;
 
 function setPreviewEditing(editing: boolean) {
   previewEditing = editing;
@@ -3590,6 +3634,7 @@ function setPreviewEditing(editing: boolean) {
 
 async function openFilePreview(raw: string, cwd: string | null) {
   const path = resolveFilePath(raw, cwd);
+  const seq = ++previewSeq;
   disposeModelPreview();
   previewPath = path;
   previewText = null;
@@ -3612,6 +3657,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
     filePreviewEditBtn.classList.add("hidden");
     try {
       const dataUrl = await invoke<string>("read_image_data_url", { path });
+      if (seq !== previewSeq) return;
       filePreviewBody.className = "file-preview-body img";
       filePreviewBody.replaceChildren();
       const img = document.createElement("img");
@@ -3619,7 +3665,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
       img.alt = raw;
       filePreviewBody.appendChild(img);
     } catch (err) {
-      filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
+      if (seq === previewSeq) filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
     }
     return;
   }
@@ -3631,19 +3677,29 @@ async function openFilePreview(raw: string, cwd: string | null) {
     filePreviewBody.appendChild(canvas);
     try {
       const { renderModelPreview } = await import("./modelPreview");
-      currentModelPreview = await renderModelPreview(canvas, path, ext);
+      const preview = await renderModelPreview(canvas, path, ext);
+      if (seq !== previewSeq) {
+        preview.dispose?.();
+        return;
+      }
+      currentModelPreview = preview;
     } catch (err) {
-      filePreviewBody.className = "file-preview-body plain";
-      filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
+      if (seq === previewSeq) {
+        filePreviewBody.className = "file-preview-body plain";
+        filePreviewBody.textContent = `${t("filePreviewError")}: ${path}\n${err}`;
+      }
     }
     return;
   }
   try {
     const text = await invoke<string>("read_text_file", { path });
+    if (seq !== previewSeq) return;
     previewText = text;
     if (MARKDOWN_EXT_RE.test(path)) {
+      const html = DOMPurify.sanitize(await marked.parse(text));
+      if (seq !== previewSeq) return;
       filePreviewBody.className = "file-preview-body md";
-      filePreviewBody.innerHTML = DOMPurify.sanitize(await marked.parse(text));
+      filePreviewBody.innerHTML = html;
     } else {
       const lang = langForPath(path);
       if (lang && hljs.getLanguage(lang)) {
@@ -3656,6 +3712,7 @@ async function openFilePreview(raw: string, cwd: string | null) {
       }
     }
   } catch (err) {
+    if (seq !== previewSeq) return;
     filePreviewEditBtn.classList.add("hidden");
     filePreviewBody.className = "file-preview-body plain";
     // A bare name with no path separators (e.g. from a bullet list) was
@@ -3679,6 +3736,28 @@ window.addEventListener("beforeunload", () => {
   for (const id of sessions.keys()) invoke("kill_pty", { id }).catch(() => {});
 });
 
+// F5 / Ctrl+R (Cmd+R on macOS) reload the webview by default, which — via
+// the beforeunload handler above — silently kills every live PTY session
+// with no confirmation, unlike closing a single busy tab. Intercept and
+// route through the same confirm dialog before letting a reload happen.
+document.addEventListener("keydown", (e) => {
+  const isReloadKey =
+    e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyR");
+  if (!isReloadKey) return;
+  e.preventDefault();
+  if (sessions.size === 0) {
+    location.reload();
+    return;
+  }
+  confirmDialog(
+    t("reloadConfirm").replace("{n}", String(sessions.size)),
+    t("reloadConfirmTitle"),
+    t("reloadConfirmOk"),
+  ).then((proceed) => {
+    if (proceed) location.reload();
+  });
+});
+
 // Errors must never be invisible: surface unexpected failures in the banner
 // instead of dying as silent promise rejections.
 function surfaceError(msg: string) {
@@ -3689,6 +3768,12 @@ window.addEventListener("unhandledrejection", (e) =>
   surfaceError(String(e.reason).slice(0, 300)),
 );
 window.addEventListener("error", (e) => surfaceError(String(e.message).slice(0, 300)));
+// Emitted once, at startup, if the local hook server never came up —
+// notifications (idle/waiting/permission prompts) are silently off for
+// every session started this run otherwise, with no other visible sign.
+listen<string>("hook-server-error", (e) =>
+  surfaceError(`Notifications disabled: hook server failed to start (${e.payload})`),
+);
 
 // ── AI command search (F3): '#' / Ctrl+Space in shell tabs ─
 //
@@ -3944,6 +4029,10 @@ function maybeRestore() {
   $("#restore-close").onclick = () => {
     restorePending = false;
     $("#restore-banner").classList.add("hidden");
+    // The boot-time auto-launch check skipped launching while this banner
+    // was pending; declining it (instead of restoring) means the empty
+    // window should still warm up Claude Code like the no-journal case.
+    maybeAutoLaunch();
   };
   $("#restore-banner").classList.remove("hidden");
 }
@@ -3954,11 +4043,16 @@ applyTheme();
 applyI18n();
 updateEmptyState();
 maybeRestore();
-refreshCliButtons().then(() => {
-  // Auto-launch: warm up Claude Code in the last folder while the user
-  // is still tabbing into their game. A restored (or restorable) layout
-  // takes precedence — auto-launching next to it would duplicate tabs.
+let cliButtonsReady = false;
+// Auto-launch: warm up Claude Code in the last folder while the user is
+// still tabbing into their game. A restored (or restorable/pending) layout
+// takes precedence — auto-launching next to it would duplicate tabs. Called
+// once cliButtons has resolved, both at boot and again if the user declines
+// the restore banner (which flips restorePending back off after boot's own
+// check already ran and skipped).
+function maybeAutoLaunch() {
   if (
+    cliButtonsReady &&
     settings.autoLaunch &&
     sessions.size === 0 &&
     !restorePending &&
@@ -3967,6 +4061,10 @@ refreshCliButtons().then(() => {
   ) {
     launchCli("claude", "Claude Code", pickedFolder);
   }
+}
+refreshCliButtons().then(() => {
+  cliButtonsReady = true;
+  maybeAutoLaunch();
 });
 
 // First run: walk the user through the core UI once. The static help

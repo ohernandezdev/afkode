@@ -259,6 +259,10 @@ function accept(i: number) {
 }
 
 function clearSugs() {
+  // Invalidate any in-flight updateSugs() (e.g. a slow list_dir from a
+  // query typed before this clear) so its late response can't repopulate
+  // the list we just emptied — same guard updateSugs() itself checks.
+  sugSeq++;
   sugs = [];
   sel = -1;
   renderSugs();

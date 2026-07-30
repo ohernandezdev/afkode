@@ -1587,58 +1587,75 @@ struct GitStatus {
 /// hides the chip rather than showing an error.
 #[tauri::command]
 async fn git_status(cwd: String) -> Option<GitStatus> {
-    let branch = run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?;
-    let shortstat = run_git(&cwd, &["diff", "--shortstat"]).unwrap_or_default();
-    let porcelain = run_git(&cwd, &["status", "--porcelain"]).unwrap_or_default();
-    let mut added = 0u32;
-    let mut removed = 0u32;
-    for part in shortstat.split(',') {
-        let part = part.trim();
-        if let Some(n) = part
-            .strip_suffix(" insertion(+)")
-            .or_else(|| part.strip_suffix(" insertions(+)"))
-        {
-            added = n.trim().parse().unwrap_or(0);
-        } else if let Some(n) = part
-            .strip_suffix(" deletion(-)")
-            .or_else(|| part.strip_suffix(" deletions(-)"))
-        {
-            removed = n.trim().parse().unwrap_or(0);
+    // Polled every 5s per visible tab, and `git` on a large working tree or
+    // a network-mounted repo can take well over that — run it off the async
+    // runtime's worker threads so a slow status call in one tab can't starve
+    // spawn_pty/write_pty/resize_pty/kill_pty in every other tab. Same
+    // reasoning as write_pty's spawn_blocking above.
+    tauri::async_runtime::spawn_blocking(move || {
+        let branch = run_git(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        let shortstat = run_git(&cwd, &["diff", "--shortstat"]).unwrap_or_default();
+        let porcelain = run_git(&cwd, &["status", "--porcelain"]).unwrap_or_default();
+        let mut added = 0u32;
+        let mut removed = 0u32;
+        for part in shortstat.split(',') {
+            let part = part.trim();
+            if let Some(n) = part
+                .strip_suffix(" insertion(+)")
+                .or_else(|| part.strip_suffix(" insertions(+)"))
+            {
+                added = n.trim().parse().unwrap_or(0);
+            } else if let Some(n) = part
+                .strip_suffix(" deletion(-)")
+                .or_else(|| part.strip_suffix(" deletions(-)"))
+            {
+                removed = n.trim().parse().unwrap_or(0);
+            }
         }
-    }
-    Some(GitStatus {
-        branch,
-        added,
-        removed,
-        dirty: !porcelain.is_empty(),
+        Some(GitStatus {
+            branch,
+            added,
+            removed,
+            dirty: !porcelain.is_empty(),
+        })
     })
+    .await
+    .unwrap_or(None)
 }
 
 /// Check which CLIs are resolvable in PATH (handles .cmd shims via where.exe
 /// on Windows; `command -v` in a login shell elsewhere).
 #[tauri::command]
 async fn detect_clis(names: Vec<String>) -> Vec<bool> {
-    names
-        .iter()
-        .map(|n| {
-            #[cfg(target_os = "windows")]
-            let mut c = {
-                let mut c = std::process::Command::new("where.exe");
-                c.arg(n);
-                use std::os::windows::process::CommandExt;
-                c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-                c
-            };
-            #[cfg(not(target_os = "windows"))]
-            let mut c = {
-                let mut c = std::process::Command::new("/bin/sh");
-                c.args(["-lc", &format!("command -v {}", sh_squote(n))]);
-                c
-            };
-            c.env("PATH", augmented_path());
-            c.output().map(|o| o.status.success()).unwrap_or(false)
-        })
-        .collect()
+    // Spawns + waits on one process per name synchronously; on a loaded
+    // system (or a login shell with heavy rc files on the non-Windows path)
+    // that's enough to block the shared Tokio pool other PTY commands run
+    // on — same spawn_blocking treatment as git_status above.
+    tauri::async_runtime::spawn_blocking(move || {
+        names
+            .iter()
+            .map(|n| {
+                #[cfg(target_os = "windows")]
+                let mut c = {
+                    let mut c = std::process::Command::new("where.exe");
+                    c.arg(n);
+                    use std::os::windows::process::CommandExt;
+                    c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                    c
+                };
+                #[cfg(not(target_os = "windows"))]
+                let mut c = {
+                    let mut c = std::process::Command::new("/bin/sh");
+                    c.args(["-lc", &format!("command -v {}", sh_squote(n))]);
+                    c
+                };
+                c.env("PATH", augmented_path());
+                c.output().map(|o| o.status.success()).unwrap_or(false)
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// F3 — AI command search: run the user's installed Claude Code in print
@@ -2153,6 +2170,22 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Called by the frontend in response to "quit-requested", after it has
+/// synchronously flushed the debounced session journal — killing PTYs and
+/// exiting straight from the tray menu handler could race a pending
+/// scheduleJournal() timeout (up to 500ms), losing the just-made layout
+/// change (new/closed/renamed tab) on the next restore.
+#[tauri::command]
+fn confirm_quit(app: AppHandle) {
+    if let Some(state) = app.try_state::<PtyState>() {
+        let mut sessions = state.sessions.lock().unwrap();
+        for (_, mut s) in sessions.drain() {
+            let _ = s.child.kill();
+        }
+    }
+    app.exit(0);
+}
+
 #[tauri::command]
 fn show_palette(app: AppHandle) {
     if let Some(palette) = app.get_webview_window("palette") {
@@ -2224,6 +2257,7 @@ pub fn run() {
             read_binary_file_base64,
             git_status,
             install_update,
+            confirm_quit,
             platform_info,
             speak_text
         ])
@@ -2247,15 +2281,35 @@ pub fn run() {
                 });
             }
 
-            // Agent hook feed: local listener + generated settings file.
-            if let Some(port) = start_hook_server(app.handle().clone()) {
-                if let Ok(dir) = app.path().app_config_dir() {
-                    match write_hooks_settings(dir, port) {
+            // Agent hook feed: local listener + generated settings file. Any
+            // failure here means every Claude Code session started after
+            // this point silently runs with no idle/waiting/permission
+            // notifications — that's surfaced to the frontend (instead of
+            // just eprintln!, invisible in the packaged .exe) so the user
+            // has a chance to notice instead of wondering why they never
+            // got pinged.
+            match start_hook_server(app.handle().clone()) {
+                Some(port) => match app.path().app_config_dir() {
+                    Ok(dir) => match write_hooks_settings(dir, port) {
                         Ok(path) => {
                             let _ = HOOKS_FILE.set(path);
                         }
-                        Err(e) => eprintln!("could not write hooks settings: {e}"),
+                        Err(e) => {
+                            eprintln!("could not write hooks settings: {e}");
+                            let _ = app.emit("hook-server-error", e.to_string());
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("could not resolve app config dir for hooks settings: {e}");
+                        let _ = app.emit("hook-server-error", e.to_string());
                     }
+                },
+                None => {
+                    eprintln!("could not bind hook server to any port in 4517..4527");
+                    let _ = app.emit(
+                        "hook-server-error",
+                        "no free port in 4517..4527".to_string(),
+                    );
                 }
             }
 
@@ -2354,14 +2408,12 @@ pub fn run() {
                         "toggle" => toggle_overlay(app),
                         "ghost" => toggle_click_through(app),
                         "palette" => toggle_palette(app),
+                        // Let the frontend flush the debounced session
+                        // journal (see confirm_quit) before anything dies —
+                        // it calls back into confirm_quit once localStorage
+                        // is up to date.
                         "quit" => {
-                            if let Some(state) = app.try_state::<PtyState>() {
-                                let mut sessions = state.sessions.lock().unwrap();
-                                for (_, mut s) in sessions.drain() {
-                                    let _ = s.child.kill();
-                                }
-                            }
-                            app.exit(0);
+                            let _ = app.emit("quit-requested", ());
                         }
                         _ => {}
                     })
